@@ -1,0 +1,43 @@
+# Dependencies & build output
+node_modules/
+.next/
+out/
+dist/
+build/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+coverage/
+.coverage
+playwright-report/
+test-results/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Runtime data (lives in %LOCALAPPDATA%\Clawde by default; guard against local overrides)
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.faiss
+
+# Model weights & training artifacts
+*.gguf
+*.safetensors
+*.bin
+*.pt
+checkpoints/
+runs/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
