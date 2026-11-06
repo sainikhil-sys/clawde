@@ -195,6 +195,38 @@ export type ChatMessage = {
   created_at: string;
   /** This message and its alternatives (edits / regenerations), oldest first. Present on detail reads. */
   sibling_ids?: string[];
+  attachments?: AttachmentBrief[];
+};
+
+export type AttachmentKind = "pdf" | "docx" | "xlsx" | "csv" | "json" | "markdown" | "text" | "code" | "image";
+export type AttachmentStatus = "pending" | "processing" | "ready" | "failed";
+export type AttachmentBrief = {
+  id: string;
+  filename: string;
+  kind: AttachmentKind;
+  size_bytes: number;
+  status: AttachmentStatus;
+  page_count: number | null;
+  meta: Record<string, unknown>;
+};
+export type Attachment = AttachmentBrief & {
+  conversation_id: string | null;
+  mime_type: string;
+  error: string | null;
+  char_count: number | null;
+  created_at: string;
+};
+export type AttachmentText = { id: string; offset: number; text: string; total_chars: number; truncated: boolean };
+export type DocumentUse = {
+  mode: "none" | "full" | "excerpts";
+  semantic?: boolean;
+  files: {
+    id: string;
+    filename: string;
+    excerpts: number | null;
+    total_excerpts: number;
+    image_visible: boolean | null;
+  }[];
 };
 
 export type Conversation = {
@@ -240,6 +272,7 @@ export type TurnEvent =
         user_message: ChatMessage | null;
         assistant_message: ChatMessage;
         history_messages_dropped: number;
+        documents?: DocumentUse;
       };
     }
   | { event: "token"; data: { text: string } }
@@ -296,6 +329,22 @@ export const api = {
   templates: (signal?: AbortSignal) => apiRequest<PromptTemplate[]>("/api/templates", { signal }),
   createTemplate: (body: { name: string; content: string }) =>
     apiRequest<PromptTemplate>("/api/templates", { method: "POST", body }),
+  attachment: (id: string, signal?: AbortSignal) =>
+    apiRequest<Attachment>(`/api/attachments/${encodeURIComponent(id)}`, { signal }),
+  attachmentText: (id: string, offset = 0, limit = 20_000, signal?: AbortSignal) =>
+    apiRequest<AttachmentText>(`/api/attachments/${encodeURIComponent(id)}/text?offset=${offset}&limit=${limit}`, {
+      signal,
+    }),
+  deleteAttachment: (id: string) =>
+    apiRequest<void>(`/api/attachments/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  /** URL of the original file (images render inline; other types download). Sent with the session cookie. */
+  attachmentContentUrl: (id: string) => `${apiBase()}/api/attachments/${encodeURIComponent(id)}/content`,
+  downloadAttachment: async (id: string) => {
+    const resp = await apiFetch(`/api/attachments/${encodeURIComponent(id)}/content`);
+    const disposition = resp.headers.get("Content-Disposition") ?? "";
+    const filename = /filename="?([^";]+)"?/.exec(disposition)?.[1] ?? "file";
+    return { blob: await resp.blob(), filename: decodeURIComponent(filename) };
+  },
   deleteTemplate: (id: string) => apiRequest<void>(`/api/templates/${encodeURIComponent(id)}`, { method: "DELETE" }),
   conversation: (id: string, signal?: AbortSignal) =>
     apiRequest<ConversationDetail>(`/api/conversations/${encodeURIComponent(id)}`, { signal }),
@@ -304,7 +353,14 @@ export const api = {
 };
 
 export type TurnRequest =
-  | { kind: "send"; content: string; model_id: string; params: GenerationParams; edit_of?: string }
+  | {
+      kind: "send";
+      content: string;
+      model_id: string;
+      params: GenerationParams;
+      edit_of?: string;
+      attachment_ids?: string[];
+    }
   | { kind: "regenerate"; message_id: string; model_id: string; params: GenerationParams }
   | { kind: "continue"; message_id: string; params: GenerationParams };
 
@@ -333,4 +389,50 @@ export async function* streamTurn(
   for await (const ev of parseSse(resp.body)) {
     yield { event: ev.event, data: JSON.parse(ev.data) } as TurnEvent;
   }
+}
+
+/**
+ * Uploads a file with progress (fetch has no upload progress, so this uses XMLHttpRequest).
+ * Resolves with the stored attachment (status "pending"; poll until "ready" or "failed").
+ */
+export async function uploadAttachment(
+  file: File,
+  opts: { conversationId?: string | null; onProgress?: (fraction: number) => void; signal?: AbortSignal } = {},
+): Promise<Attachment> {
+  const send = async (retry: boolean): Promise<Attachment> => {
+    const token = await ensureSession();
+    const form = new FormData();
+    form.append("file", file, file.name);
+    if (opts.conversationId) form.append("conversation_id", opts.conversationId);
+    return new Promise<Attachment>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${apiBase()}/api/attachments`);
+      xhr.withCredentials = true;
+      xhr.setRequestHeader("X-CSRF-Token", token);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) opts.onProgress?.(e.loaded / e.total);
+      };
+      xhr.onerror = () => reject(new ApiUnreachableError(new Error("network error")));
+      xhr.onabort = () => reject(new DOMException("Upload cancelled", "AbortError"));
+      xhr.onload = () => {
+        let body: ErrorBody & Partial<Attachment> = {};
+        try {
+          body = JSON.parse(xhr.responseText || "{}");
+        } catch {
+          /* non-JSON */
+        }
+        if (xhr.status === 201) return resolve(body as Attachment);
+        const detail = typeof body.detail === "object" && body.detail && !Array.isArray(body.detail) ? body.detail : {};
+        const code = (detail as { code?: string }).code ?? `http_${xhr.status}`;
+        if (retry && ["no_session", "session_expired", "csrf_failed"].includes(code)) {
+          resetSession();
+          return resolve(send(false));
+        }
+        reject(new ApiError(xhr.status, code, (detail as { message?: string }).message ?? "Upload failed."));
+      };
+      opts.signal?.addEventListener("abort", () => xhr.abort());
+      xhr.send(form);
+    });
+  };
+  return send(true);
 }

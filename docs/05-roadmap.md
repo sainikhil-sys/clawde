@@ -13,7 +13,7 @@ chat is model-independent from day one. M11 then builds the full Model Library U
 | 3 | Backend & database | FastAPI skeleton, settings, structlog, SQLAlchemy models, Alembic, session/CSRF/Host checks, audit log, `/health` | ✅ Done: see progress log |
 | 4 | Inference & streaming | `ModelProvider`, Ollama adapter, minimal registry sync, SSE chat endpoint, stop via abort | ✅ Done: see progress log |
 | 5 | Complete chat | Conversations CRUD, search, folders, pin/archive, edit/regenerate branches, continue, retry, markdown/code, export, JSON mode, prompt templates | ✅ Done: see progress log |
-| 6 | Files & documents | Upload validation (size/type/magic), extraction for all listed types, previews, status + errors, chunking, embeddings, chat-with-file | 🧪 fixture files per type; malicious files rejected |
+| 6 | Files & documents | Upload validation (size/type/magic), extraction for all listed types, previews, status + errors, chunking, embeddings, chat-with-file | ✅ Done: see progress log |
 | 7 | Projects | Project CRUD, instructions, knowledge, scoped chats, per-project FAISS, search, export/delete | 🧪 isolation test: project A retrieval never returns B's chunks |
 | 8 | Memory & retrieval | 5 memory kinds, CRUD/inspect UI, ranking, summarisation, context budgeting | 🧪 memory survives restart; deleted memory never retrieved |
 | 9 | Artifacts | Sandbox origin server, iframe runtime, all artifact types, editor, versions, diff, fullscreen, export | 🧪 security tests: artifact cannot read parent cookies/DOM or call API |
@@ -160,6 +160,49 @@ Notes:
   CPU-only machine they would add a second slow generation to every new chat. Rename is available instead.
 - Search uses LIKE, not FTS5, so the same code works on PostgreSQL. It is fine for thousands of conversations;
   an indexed search can replace it if needed.
+
+### Milestone 6: file uploads and documents (2026-11-06)
+Built:
+- `POST /api/attachments` (multipart, CSRF): the extension must match the content (PDF, ZIP/Office and image
+  signatures; text must not contain NUL bytes). Windows, Linux and macOS executables are refused whatever their name.
+  Size limit 25 MB (`CLAWDE_MAX_UPLOAD_BYTES`), with its own body limit so the 1 MiB JSON limit still applies elsewhere.
+  Files are stored as `uploads/<id>/original.<ext>`, and the user's filename is only used for display.
+- Background extraction (status `pending` → `processing` → `ready` | `failed`, resumed after a restart):
+  - PDF (pypdf, page markers, scans without a text layer are flagged, encrypted files refused)
+  - DOCX (headings, lists, tables), XLSX (cached values only, formulas never evaluated)
+  - CSV/TSV (delimiter sniffing), JSON (validated and pretty-printed), Markdown, text, source code
+  - Images (Pillow verification, decompression-bomb guard)
+  - Office zip-bomb checks; page, row and 2 million character caps.
+- Chunking along paragraph and sentence boundaries with overlap. Chunks are embedded when an embedding-capable model
+  is installed (none is yet; BM25 keyword ranking works without one).
+- Chat with files: `attachment_ids` on send (edits keep the original's files). Each turn puts all files in the
+  current branch into one system block: the full text if it fits the context budget, otherwise the passages most
+  relevant to the latest question, in document order. The block is marked as untrusted reference data, and a
+  document can't close its wrapper tag (prompt-injection defence). Vision models receive image bytes; text-only
+  models are told an image is attached but they can't see it.
+- Previews: extracted text (paged) and inline images. Originals download with a sandbox CSP and `nosniff`.
+  Unsent files can be deleted, and deleting a conversation removes its files from disk (audited, with counts only).
+- Web UI: attach button, drag-and-drop and paste. Chips show upload progress, then "reading", ready, or the reason it
+  failed. Sending waits for processing; failed files must be removed first. A warning appears when the selected
+  model can't see images, file chips show on sent messages with a preview dialog, and a note says whether the full
+  text or excerpts were used.
+
+Verified:
+- 156 backend tests: real generated PDF/DOCX/XLSX/PNG/CSV/JSON/code/cp1252 files, 8 rejection cases, a zip bomb,
+  the size limit with cleanup, path-traversal filenames, untrusted wrapping and tag escaping, relevant excerpts
+  from a long file, the embeddings path, the vision path, attachment ownership rules, file removal on delete,
+  resuming after a restart.
+- 61 frontend tests, including upload with CSRF, the processing wait, rejection display, blocking send, the image
+  warning and preview.
+- 3 end-to-end tests against the real stack: llama3.2 answered a question with a made-up code
+  (`PELICAN-4471`) that existed only in the uploaded file, and a `.exe` was rejected with a clear message.
+
+Limitations:
+- No OCR: scanned PDFs and text inside images can't be read. The UI says so.
+- No installed model can see images (none advertises `vision`). The vision path is covered by tests with a test
+  provider but not with a real model.
+- No embedding model is installed, so retrieval is keyword-based (BM25) until one is pulled, e.g. `nomic-embed-text`
+  (a ~270 MB download, needs internet once).
 
 ## Known limitations (current)
 - CPU-only inference: 7B models run at about 5 tok/s, so small models are the default for interactivity.

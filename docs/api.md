@@ -38,13 +38,18 @@ Base URL: `http://127.0.0.1:8000`. With the API running, live OpenAPI docs are a
 | PUT | `/api/conversations/{id}/branch` | cookie + CSRF | `{message_id}` → show the branch containing that message |
 | POST | `/api/conversations/{id}/regenerate` | cookie + CSRF | `{message_id, model_id?, params?}` → SSE. New alternative reply (also used for retry) |
 | POST | `/api/conversations/{id}/continue` | cookie + CSRF | `{message_id, params?}` → SSE. Appends to a stopped / length-limited reply |
+| POST | `/api/attachments` | cookie + CSRF | Multipart `file` (+ optional `conversation_id`) → attachment, status `pending`. 415 `unsupported_file`, 413 `file_too_large` |
+| GET | `/api/attachments/{id}` | cookie | Status (`pending`/`processing`/`ready`/`failed`), `error`, `page_count`, `char_count`, `meta` |
+| GET | `/api/attachments/{id}/text?offset=&limit=` | cookie | Extracted text in pages (409 `not_ready` while processing) |
+| GET | `/api/attachments/{id}/content` | cookie | Original file: images inline, everything else as a download; CSP `sandbox` |
+| DELETE | `/api/attachments/{id}` | cookie + CSRF | Only unsent files (409 `attachment_in_use` otherwise) |
 | GET/POST | `/api/folders` | cookie (+ CSRF) | List (with `conversation_count`) / create `{name}` |
 | PATCH/DELETE | `/api/folders/{id}` | cookie + CSRF | Rename / delete (conversations are kept) |
 | GET/POST | `/api/templates` | cookie (+ CSRF) | List / create `{name, content}` |
 | PATCH/DELETE | `/api/templates/{id}` | cookie + CSRF | Update / delete |
 | POST | `/api/conversations` | cookie + CSRF | `{title?, model_id?}` → conversation (201) |
 | GET | `/api/conversations/{id}` | cookie | Conversation with the selected branch's messages; each has `sibling_ids` and `finish_reason` |
-| POST | `/api/conversations/{id}/messages` | cookie + CSRF | `{content, model_id?, params?, edit_of?}` → **SSE stream** (see below). `edit_of` makes the message a new version of an earlier user message |
+| POST | `/api/conversations/{id}/messages` | cookie + CSRF | `{content, model_id?, params?, edit_of?, attachment_ids?}` → **SSE stream** (see below). `edit_of` makes the message a new version of an earlier user message (keeping its files unless `attachment_ids` is given) |
 
 ### Streaming a reply
 The `params` field takes `{temperature 0–2, top_p 0–1, max_tokens 1–32768, context_length 512–131072, seed?,
@@ -55,7 +60,7 @@ conversation's last model, then the `default_model` setting. Otherwise the reque
 Events (`text/event-stream`, each `data:` is JSON):
 | Event | Data |
 |---|---|
-| `start` | `{conversation, user_message, assistant_message, history_messages_dropped}` |
+| `start` | `{conversation, user_message, assistant_message, history_messages_dropped, documents}`. `documents.mode` is `none`, `full` or `excerpts`, with per-file excerpt counts |
 | `token` | `{text}`, repeated |
 | `done` | `{message, finish_reason, total_duration_ms, load_duration_ms}` |
 | `error` | `{code, message, message_id}`. Partial text is saved on the message |
@@ -97,6 +102,7 @@ uv run clawde-api info
 | `CLAWDE_ALLOWED_ORIGINS` | `["http://127.0.0.1:3000","http://localhost:3000"]` | JSON list |
 | `CLAWDE_SESSION_TTL_HOURS` | `720` | Session lifetime |
 | `CLAWDE_MAX_REQUEST_BYTES` | `1048576` | JSON body limit |
+| `CLAWDE_MAX_UPLOAD_BYTES` | `26214400` | File upload limit (25 MB) |
 | `CLAWDE_OLLAMA_URL` | `http://127.0.0.1:11434` | Local Ollama server |
 | `CLAWDE_OLLAMA_KEEP_ALIVE` | `10m` | How long Ollama keeps a model in RAM after use |
 | `CLAWDE_LOG_LEVEL` | `INFO` | |

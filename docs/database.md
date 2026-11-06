@@ -94,5 +94,29 @@ startup (after a crash) become `cancelled`.
   backend-specific.
 - New table `prompt_templates`: `id` PK · `name` varchar(200) · `content` text · `created_at` · `updated_at`.
 
-Planned tables (attachments, documents, chunks, memories, artifacts, models, agent runs, evaluations, research
+## Revision `0004_attachments` (Milestone 6)
+
+### attachments
+| Column | Type | Notes |
+|---|---|---|
+| id | varchar(32) PK | Also the folder name under `uploads/` |
+| conversation_id | FK → conversations, `ON DELETE CASCADE`, indexed | Null until the file is sent |
+| filename | varchar(255) | Sanitised display name only |
+| kind, mime_type | varchar | Validated from extension + content |
+| size_bytes, sha256 | bigint, varchar(64) | |
+| stored_path | varchar(300) | Relative to `uploads/`, e.g. `<id>/original.pdf` |
+| status, error | varchar, text | `pending` → `processing` → `ready` / `failed` |
+| extracted_text, char_count, page_count | text, int, int | Capped at 2M characters |
+| meta | JSON | Image size, sheets, delimiter, encoding, truncation and `no_text_layer` flags, chunk count, embedding model |
+| created_at, processed_at | datetime | |
+
+### message_attachments
+`message_id` FK → messages (cascade) + `attachment_id` FK → attachments (cascade), composite PK, `position`. A file can
+belong to several messages (an edited message keeps the original's files).
+
+### document_chunks
+`id` PK · `attachment_id` FK (cascade) · `ordinal` · `char_start` · `char_end` · `text` · `embedding` JSON null ·
+`embedding_model` null. Index on (`attachment_id`, `ordinal`).
+
+Planned tables (memories, artifacts, models, agent runs, evaluations, research
 runs) are listed in `docs/02-architecture.md` §5 and arrive with their milestones.

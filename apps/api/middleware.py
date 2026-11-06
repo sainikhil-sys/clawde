@@ -72,24 +72,27 @@ class RequestContextMiddleware:
 class BodySizeLimitMiddleware:
     """Rejects bodies over `max_bytes`, using Content-Length when present and counting otherwise."""
 
-    def __init__(self, app: ASGIApp, max_bytes: int) -> None:
+    def __init__(self, app: ASGIApp, max_bytes: int, path_limits: dict[str, int] | None = None) -> None:
         self.app = app
-        self.max_bytes = max_bytes
+        self.default_max = max_bytes
+        #: Exact paths with a larger allowance (file uploads); everything else uses the JSON limit.
+        self.path_limits = path_limits or {}
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
+        max_bytes = self.path_limits.get(scope["path"], self.default_max)
         length = Headers(scope=scope).get("content-length")
         if length is not None:
             try:
-                too_big = int(length) > self.max_bytes
+                too_big = int(length) > max_bytes
             except ValueError:
                 await _send_json_error(send, 400, "bad_content_length", "Invalid Content-Length header.")
                 return
             if too_big:
                 await _send_json_error(
-                    send, 413, "body_too_large", f"Request body exceeds {self.max_bytes} bytes."
+                    send, 413, "body_too_large", f"Request body exceeds {max_bytes} bytes."
                 )
                 return
 
@@ -101,7 +104,7 @@ class BodySizeLimitMiddleware:
             message = await receive()
             if message["type"] == "http.request":
                 received += len(message.get("body", b""))
-                if received > self.max_bytes:
+                if received > max_bytes:
                     raise _BodyTooLarge
             return message
 
@@ -116,7 +119,7 @@ class BodySizeLimitMiddleware:
         except _BodyTooLarge:
             if not response_started:
                 await _send_json_error(
-                    send, 413, "body_too_large", f"Request body exceeds {self.max_bytes} bytes."
+                    send, 413, "body_too_large", f"Request body exceeds {max_bytes} bytes."
                 )
 
 

@@ -3,9 +3,10 @@
 import { AlertCircle, ChevronLeft, ChevronRight, Pencil, Play, RefreshCw, RotateCcw } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import type { ChatMessage } from "@/lib/api";
+import type { AttachmentBrief, ChatMessage } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
+import { AttachmentChip, attachmentDetails } from "./attachments";
 import { CopyButton } from "./copy-button";
 import { Markdown } from "./markdown";
 import { shortModelName } from "./model-select";
@@ -15,6 +16,7 @@ export type MessageActions = {
   onRegenerate: (message: ChatMessage) => void;
   onContinue: (message: ChatMessage) => void;
   onSelectSibling: (messageId: string) => void;
+  onOpenAttachment: (attachment: AttachmentBrief) => void;
 };
 
 const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
@@ -169,8 +171,23 @@ function UserMessage({ message, busy, actions }: { message: ChatMessage; busy: b
     );
   }
 
+  const files = message.attachments ?? [];
   return (
     <div className="group flex flex-col items-end">
+      {files.length > 0 && (
+        <div className="mb-1.5 flex max-w-[85%] flex-wrap justify-end gap-1.5" aria-label="Attached files">
+          {files.map((a) => (
+            <AttachmentChip
+              key={a.id}
+              name={a.filename}
+              kind={a.kind}
+              detail={attachmentDetails(a)}
+              state={a.status === "failed" ? "failed" : "ready"}
+              onOpen={() => actions.onOpenAttachment(a)}
+            />
+          ))}
+        </div>
+      )}
       <div className="max-w-[85%] rounded-2xl rounded-br-md bg-secondary px-4 py-2.5 text-[0.95rem] leading-relaxed break-words whitespace-pre-wrap">
         {message.content}
       </div>

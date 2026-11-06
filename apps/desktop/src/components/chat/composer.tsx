@@ -17,6 +17,8 @@ export function Composer({
   disabledReason,
   toolbar,
   autoFocus,
+  above,
+  onPasteFiles,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -28,6 +30,9 @@ export function Composer({
   disabledReason?: string;
   toolbar: ReactNode;
   autoFocus?: boolean;
+  /** Rendered above the text box (attached files). */
+  above?: ReactNode;
+  onPasteFiles?: (files: File[]) => void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -53,6 +58,7 @@ export function Composer({
       }}
       className="rounded-xl border bg-card shadow-xs transition-colors focus-within:border-ring/60"
     >
+      {above}
       <label htmlFor="composer" className="sr-only">
         Message
       </label>
@@ -62,6 +68,13 @@ export function Composer({
         rows={1}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onPaste={(e) => {
+          const pasted = Array.from(e.clipboardData.files);
+          if (pasted.length && onPasteFiles) {
+            e.preventDefault();
+            onPasteFiles(pasted);
+          }
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();

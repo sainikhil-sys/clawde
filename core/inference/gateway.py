@@ -33,6 +33,10 @@ class InferenceGateway:
         provider, ref = self.provider_for(model_id)
         return provider.chat_stream(ref, messages, params)
 
+    async def embed(self, model_id: str, texts: Sequence[str]) -> list[list[float]]:
+        provider, ref = self.provider_for(model_id)
+        return await provider.embed(ref, texts)
+
     async def aclose(self) -> None:
         for p in self._providers.values():
             await p.aclose()

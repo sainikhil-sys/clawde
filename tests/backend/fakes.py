@@ -82,5 +82,13 @@ class FakeProvider:
         finally:
             self.streams_closed += 1
 
+    embed_calls: list[list[str]] = field(default_factory=list)
+
+    async def embed(self, ref: str, texts: Sequence[str]) -> list[list[float]]:
+        """Deterministic toy vectors: counts of a few marker words, so similarity is testable."""
+        self.embed_calls.append(list(texts))
+        markers = ("ocean", "mountain", "finance", "python")
+        return [[float(t.lower().count(w)) + 0.01 for w in markers] for t in texts]
+
     async def aclose(self) -> None:
         return None

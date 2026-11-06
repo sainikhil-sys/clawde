@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     cookie_secure: bool = False
     #: Upper bound for ordinary JSON request bodies. File uploads get their own limits (Milestone 6).
     max_request_bytes: int = Field(default=1_048_576, ge=1024)
+    #: Largest file accepted by POST /api/attachments.
+    max_upload_bytes: int = Field(default=25 * 1024 * 1024, ge=1024)
 
     #: Local Ollama server. Chat traffic goes only here; it is not an internet request.
     ollama_url: str = "http://127.0.0.1:11434"
@@ -84,6 +86,10 @@ class Settings(BaseSettings):
     @property
     def logs_dir(self) -> Path:
         return self.data_dir / "logs"
+
+    @property
+    def uploads_dir(self) -> Path:
+        return self.data_dir / "uploads"
 
 
 @lru_cache

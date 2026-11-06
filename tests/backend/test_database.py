@@ -33,6 +33,9 @@ EXPECTED_TABLES = {
     "messages",
     "models",
     "prompt_templates",
+    "attachments",
+    "message_attachments",
+    "document_chunks",
 }
 
 
@@ -62,7 +65,7 @@ def test_migrations_match_models(tmp_path: Path) -> None:
 
 
 def test_head_revision_is_single() -> None:
-    assert migrate.head_revision() == "0003_branches_templates"
+    assert migrate.head_revision() == "0004_attachments"
 
 
 async def test_foreign_keys_enforced_and_cascade(tmp_path: Path) -> None:

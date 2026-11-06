@@ -5,7 +5,8 @@ and a research and training studio. It runs on open-weight models and needs no p
 
 **Status:** Milestone 5 (complete chat) done. Chat with any model installed in Ollama, with Markdown and
 highlighted code, editing, regenerating, continuing and retrying (with version history), stop, timestamps,
-search, folders, pin/archive, export, prompt templates and JSON mode. File attachments arrive in Milestone 6.
+search, folders, pin/archive, export, prompt templates and JSON mode, plus file attachments (PDF, Word, Excel,
+CSV, JSON, Markdown, text, source code, images) that the model reads. Projects arrive in Milestone 7.
 
 ## Requirements
 
@@ -86,6 +87,9 @@ models/registry/     Model registry synced from providers
 services/            audit/, settings/, conversation/: business logic used by the API
 storage/database/    SQLAlchemy models, async engine, Alembic migrations
 storage/local_files/ Path-traversal-safe file access (safe_join)
+services/document_processing/  File type validation, text extraction, chunking
+services/retrieval/  Passage ranking (BM25, optional embeddings)
+services/attachments/ Upload storage, background processing, model context
 tests/backend/       API, database and migration tests
 tests/security/      Path safety tests
 tests/integration/   Live tests against a running Ollama

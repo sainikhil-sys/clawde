@@ -34,8 +34,8 @@ react / react-dom UMD, @babel/standalone, mermaid, chart.js or vega-lite, marked
 | sqlalchemy 2, alembic, aiosqlite | ORM, migrations (PG-compatible) |
 | httpx | Talk to Ollama / llama-server |
 | structlog | Structured logging |
-| python-multipart, python-magic-bin (or `filetype`) | Uploads, content sniffing |
-| pypdf (+ pdfplumber), python-docx, openpyxl, pandas, Pillow | Document extraction |
+| python-multipart | Multipart uploads (content is validated by our own signature checks) |
+| pypdf, python-docx, openpyxl, Pillow | Document extraction (pandas and pdfplumber turned out unnecessary) |
 | tiktoken or HF tokenizers | Token counting for budgets |
 | faiss-cpu, numpy | Vector index |
 | sentence-transformers | Local embeddings (alternative to Ollama embeddings) |

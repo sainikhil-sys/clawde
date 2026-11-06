@@ -6,6 +6,7 @@ internet requests. Model downloads (`/api/pull`) are a separate, network-gated f
 
 from __future__ import annotations
 
+import base64
 import json
 from collections.abc import AsyncGenerator, Sequence
 from datetime import datetime
@@ -103,7 +104,7 @@ class OllamaProvider:
             options["seed"] = params.seed
         payload = {
             "model": ref,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "messages": [_message(m) for m in messages],
             "stream": True,
             "options": options,
             "keep_alive": self.keep_alive,
@@ -145,8 +146,33 @@ class OllamaProvider:
             raise ProviderError(f"Connection to Ollama failed: {exc}") from exc
         raise ProviderError("Ollama closed the stream before finishing.")
 
+    async def embed(self, ref: str, texts: Sequence[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        try:
+            resp = await self._client.post(
+                "/api/embed", json={"model": ref, "input": list(texts)}, timeout=120.0
+            )
+        except httpx.HTTPError as exc:
+            raise ProviderUnavailable(f"Ollama is not reachable at {self.base_url}.") from exc
+        if resp.status_code == 404:
+            raise ModelNotFound(f"Ollama does not have embedding model {ref!r}.")
+        if resp.status_code != 200:
+            raise ProviderError(f"Ollama embed failed: {_error_text(resp.text[:500])}")
+        vectors = resp.json().get("embeddings") or []
+        if len(vectors) != len(texts):
+            raise ProviderError("Ollama returned the wrong number of embeddings.")
+        return [[float(x) for x in v] for v in vectors]
+
     async def aclose(self) -> None:
         await self._client.aclose()
+
+
+def _message(m: ChatMessage) -> dict[str, Any]:
+    out: dict[str, Any] = {"role": m.role, "content": m.content}
+    if m.images:
+        out["images"] = [base64.b64encode(img).decode("ascii") for img in m.images]
+    return out
 
 
 def _ms(ns: Any) -> float | None:

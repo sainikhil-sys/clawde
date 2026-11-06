@@ -15,6 +15,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from core.inference.gateway import InferenceGateway
 from core.inference.provider import ModelProvider
 from models.adapters.ollama import OllamaProvider
+from services.attachments import service as attachments
 from services.conversation import service as conversations
 from storage.database import migrate
 from storage.database.engine import Database
@@ -22,6 +23,7 @@ from storage.database.engine import Database
 from .config import APP_VERSION, Settings, get_settings
 from .logging_setup import configure_logging
 from .middleware import BodySizeLimitMiddleware, OriginCheckMiddleware, RequestContextMiddleware
+from .routers import attachments as attachments_router
 from .routers import audit, folders, health, models, session, settings, templates
 from .routers import conversations as conversations_router
 from .security import CSRF_HEADER
@@ -66,6 +68,9 @@ def create_app(
         app.state.database = database
         app.state.gateway = gateway
         app.state.active_generations = set()
+        app.state.background_tasks = set(
+            await attachments.resume_unfinished(database.sessionmaker, gateway, cfg.uploads_dir)
+        )
         log.info(
             "api.started",
             version=APP_VERSION,
@@ -77,6 +82,9 @@ def create_app(
         try:
             yield
         finally:
+            for task in list(app.state.background_tasks):
+                task.cancel()
+            await asyncio.gather(*app.state.background_tasks, return_exceptions=True)
             await gateway.aclose()
             await database.dispose()
             log.info("api.stopped")
@@ -100,6 +108,7 @@ def create_app(
         conversations_router.router,
         folders.router,
         templates.router,
+        attachments_router.router,
     ):
         app.include_router(router, prefix=api_prefix)
 
@@ -114,7 +123,12 @@ def create_app(
         # Content-Disposition carries export filenames; browsers hide it from cross-origin JS unless exposed.
         expose_headers=["X-Request-ID", "Content-Disposition"],
     )
-    app.add_middleware(BodySizeLimitMiddleware, max_bytes=cfg.max_request_bytes)
+    app.add_middleware(
+        BodySizeLimitMiddleware,
+        max_bytes=cfg.max_request_bytes,
+        # Multipart overhead on top of the file itself.
+        path_limits={"/api/attachments": cfg.max_upload_bytes + 64 * 1024},
+    )
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=cfg.allowed_hosts)
     return app

@@ -14,6 +14,7 @@ import {
   ApiUnreachableError,
   streamTurn,
   type ChatMessage,
+  type DocumentUse,
   type GenerationParams,
   type TurnRequest,
 } from "./api";
@@ -28,6 +29,8 @@ export type LiveTurn = {
   assistant: ChatMessage;
   phase: TurnPhase;
   historyDropped: number;
+  /** How attached files were given to the model this turn (full text or excerpts). */
+  documents?: DocumentUse;
   /** Persisted messages from this id onwards are replaced by the live turn (edit / regenerate). */
   replaceFrom?: string;
   /** Set when the request failed before the server accepted it; the draft can be restored. */
@@ -110,6 +113,8 @@ export type StartTurnOptions = {
   queryClient: QueryClient;
   /** For regenerate / continue: the existing assistant message (continue keeps its text). */
   existing?: ChatMessage;
+  /** Called once the server has accepted the turn (e.g. to clear attached files from the composer). */
+  onAccepted?: () => void;
 };
 
 /**
@@ -121,6 +126,7 @@ export async function startTurn({
   request,
   queryClient,
   existing,
+  onAccepted,
 }: StartTurnOptions): Promise<void> {
   if (isGenerating(id)) return;
   const modelId = "model_id" in request ? request.model_id : (existing?.model_id ?? null);
@@ -149,6 +155,7 @@ export async function startTurn({
     for await (const ev of streamTurn(id, request, ctrl.signal)) {
       if (ev.event === "start") {
         accepted = true;
+        onAccepted?.();
         assistantId = ev.data.assistant_message.id;
         set(id, (t) => ({
           ...t,
@@ -156,6 +163,7 @@ export async function startTurn({
           assistant: ev.data.assistant_message,
           phase: "streaming",
           historyDropped: ev.data.history_messages_dropped,
+          documents: ev.data.documents,
         }));
         void queryClient.invalidateQueries({ queryKey: ["conversations"] });
       } else if (ev.event === "token") {

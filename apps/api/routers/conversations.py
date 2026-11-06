@@ -5,18 +5,20 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 
-from core.context.budget import fit_history
 from core.inference.types import GenerationParams
 from core.orchestrator.chat_turn import message_payload, stream_turn
 from models.registry import service as registry
+from services.attachments import service as attachments
 from services.audit import service as audit
 from services.conversation import service as conversations
+from services.conversation.context import build_turn
 from services.conversation.service import MessageTree
 from services.settings import service as settings_service
-from storage.database.models import Conversation, Folder, Message, ModelRecord
+from storage.database.models import Attachment, Conversation, Folder, Message, ModelRecord
 
-from ..deps import DatabaseDep, DbDep, GatewayDep
+from ..deps import DatabaseDep, DbDep, GatewayDep, SettingsDep
 from ..security import CsrfSessionDep, SessionDep, api_error, client_ip
 from ..streaming import EventStreamResponse
 
@@ -50,6 +52,18 @@ class ConversationSummary(ConversationOut):
     message_count: int
 
 
+class AttachmentBrief(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    filename: str
+    kind: str
+    size_bytes: int
+    status: str
+    page_count: int | None
+    meta: dict[str, Any]
+
+
 class MessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -67,6 +81,7 @@ class MessageOut(BaseModel):
     created_at: datetime
     #: Ids of this message and its alternatives (edits / regenerations), oldest first.
     sibling_ids: list[str] = []
+    attachments: list[AttachmentBrief] = []
 
 
 class ConversationDetail(ConversationOut):
@@ -99,6 +114,8 @@ class SendMessage(BaseModel):
     params: GenerationParams = Field(default_factory=GenerationParams)
     #: Editing: the user message being replaced. The new message becomes its sibling (a new branch).
     edit_of: str | None = Field(default=None, max_length=32)
+    #: Uploaded files (status "ready") to attach. When editing and omitted, the original's files are kept.
+    attachment_ids: list[str] | None = Field(default=None, max_length=attachments.MAX_PER_MESSAGE)
 
 
 class RegenerateRequest(BaseModel):
@@ -139,20 +156,43 @@ async def _get_conversation(db: DbDep, conversation_id: str) -> Conversation:
     return conv
 
 
-def _message_out(m: Message, tree: MessageTree) -> MessageOut:
+def _message_out(m: Message, tree: MessageTree, links: dict[str, list[Attachment]]) -> MessageOut:
     out = MessageOut.model_validate(m)
     out.sibling_ids = [s.id for s in tree.siblings(m)]
+    out.attachments = [AttachmentBrief.model_validate(a) for a in links.get(m.id, [])]
     return out
 
 
 async def _detail(db: DbDep, conv: Conversation) -> ConversationDetail:
     path, tree = await conversations.active_path(db, conv)
+    links = await attachments.links_for_messages(db, [m.id for m in path])
     return ConversationDetail.model_validate(
         {
             **ConversationOut.model_validate(conv).model_dump(),
-            "messages": [_message_out(m, tree) for m in path],
+            "messages": [_message_out(m, tree, links) for m in path],
         }
     )
+
+
+async def _resolve_attachments(db: DbDep, conv: Conversation, ids: list[str]) -> list[Attachment]:
+    out: list[Attachment] = []
+    for att_id in dict.fromkeys(ids):  # de-duplicate, keep order
+        att = await db.get(Attachment, att_id)
+        if att is None or (att.conversation_id is not None and att.conversation_id != conv.id):
+            raise api_error(status.HTTP_404_NOT_FOUND, "attachment_not_found", "Attachment not found.")
+        if att.status == "failed":
+            raise api_error(
+                status.HTTP_400_BAD_REQUEST,
+                "attachment_failed",
+                f"{att.filename} couldn't be read: {att.error}",
+            )
+        if att.status != "ready":
+            raise api_error(
+                status.HTTP_409_CONFLICT, "attachment_not_ready", f"{att.filename} is still being processed."
+            )
+        att.conversation_id = conv.id
+        out.append(att)
+    return out
 
 
 def _get_message(tree: MessageTree, message_id: str, role: str | None = None) -> Message:
@@ -197,9 +237,11 @@ def _ensure_idle(request: Request, conv: Conversation) -> set[str]:
     return active
 
 
-def _start_stream(
+async def _start_stream(
     *,
     request: Request,
+    db: DbDep,
+    settings: SettingsDep,
     database: DatabaseDep,
     gateway: GatewayDep,
     conv: Conversation,
@@ -216,16 +258,13 @@ def _start_stream(
         params = params.model_copy(
             update={"context_length": min(params.context_length, model.context_length)}
         )
-    history, dropped = fit_history(
-        conversations.to_chat_history(history_rows),
-        context_length=params.context_length,
-        reserve_for_output=params.max_tokens,
-    )
+    turn = await build_turn(db, gateway, settings.uploads_dir, history_rows, model, params)
     start: dict[str, Any] = {
         "conversation": ConversationOut.model_validate(conv).model_dump(mode="json"),
         "user_message": message_payload(user_message) if user_message else None,
         "assistant_message": message_payload(assistant),
-        "history_messages_dropped": dropped,
+        "history_messages_dropped": turn.dropped,
+        "documents": turn.documents,
     }
     assistant_id = assistant.id
 
@@ -238,7 +277,7 @@ def _start_stream(
         sessionmaker=database.sessionmaker,
         gateway=gateway,
         model_id=model.id,
-        history=history,
+        history=turn.history,
         params=params,
         assistant_message_id=assistant_id,
         start_data=start,
@@ -324,20 +363,27 @@ async def update_conversation(
 
 
 @router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_conversation(conversation_id: str, request: Request, _: CsrfSessionDep, db: DbDep) -> None:
+async def delete_conversation(
+    conversation_id: str, request: Request, _: CsrfSessionDep, db: DbDep, settings: SettingsDep
+) -> None:
     conv = await _get_conversation(db, conversation_id)
     _ensure_idle(request, conv)
     count = len((await conversations.load_tree(db, conv.id)).by_id)
+    file_ids = list(
+        (await db.scalars(select(Attachment.id).where(Attachment.conversation_id == conv.id))).all()
+    )
     await db.delete(conv)
     await audit.record(
         db,
         "conversation.delete",
         target_type="conversation",
         target_id=conversation_id,
-        details={"messages": count},
+        details={"messages": count, "files": len(file_ids)},
         client_ip=client_ip(request),
     )
     await db.commit()
+    for file_id in file_ids:
+        attachments.remove_files(settings.uploads_dir, file_id)
 
 
 @router.get("/{conversation_id}/export")
@@ -387,6 +433,7 @@ async def send_message(
     db: DbDep,
     database: DatabaseDep,
     gateway: GatewayDep,
+    settings: SettingsDep,
 ) -> EventStreamResponse:
     """Adds a user message (or an edited version of one) and streams the reply. Disconnecting stops it."""
     conv = await _get_conversation(db, conversation_id)
@@ -394,6 +441,7 @@ async def send_message(
     _ensure_idle(request, conv)
 
     path, tree = await conversations.active_path(db, conv)
+    edited: Message | None = None
     if body.edit_of is not None:
         edited = _get_message(tree, body.edit_of, role="user")
         parent_id = edited.parent_id
@@ -405,15 +453,24 @@ async def send_message(
     if not tree.by_id and conv.title == conversations.DEFAULT_TITLE:
         conv.title = conversations.title_from_text(body.content)
     conv.model_id = model.id
+    if body.attachment_ids is not None:
+        files = await _resolve_attachments(db, conv, body.attachment_ids)
+    elif edited is not None:
+        files = (await attachments.links_for_messages(db, [edited.id])).get(edited.id, [])
+    else:
+        files = []
     user_msg = await conversations.add_message(
         db, conv, role="user", content=body.content, parent_id=parent_id
     )
+    await attachments.link(db, user_msg.id, files)
     assistant = await conversations.add_message(
         db, conv, role="assistant", content="", status="streaming", model_id=model.id, parent_id=user_msg.id
     )
     await db.commit()
-    return _start_stream(
+    return await _start_stream(
         request=request,
+        db=db,
+        settings=settings,
         database=database,
         gateway=gateway,
         conv=conv,
@@ -434,6 +491,7 @@ async def regenerate(
     db: DbDep,
     database: DatabaseDep,
     gateway: GatewayDep,
+    settings: SettingsDep,
 ) -> EventStreamResponse:
     """New reply to the same prompt, kept as an alternative to the old one. Also used to retry errors."""
     conv = await _get_conversation(db, conversation_id)
@@ -451,8 +509,10 @@ async def regenerate(
         db, conv, role="assistant", content="", status="streaming", model_id=model.id, parent_id=parent.id
     )
     await db.commit()
-    return _start_stream(
+    return await _start_stream(
         request=request,
+        db=db,
+        settings=settings,
         database=database,
         gateway=gateway,
         conv=conv,
@@ -473,6 +533,7 @@ async def continue_reply(
     db: DbDep,
     database: DatabaseDep,
     gateway: GatewayDep,
+    settings: SettingsDep,
 ) -> EventStreamResponse:
     """Resume a reply that was stopped or hit the token limit, appending to the same message."""
     conv = await _get_conversation(db, conversation_id)
@@ -497,8 +558,10 @@ async def continue_reply(
     msg.error = None
     conv.current_leaf_id = msg.id
     await db.commit()
-    return _start_stream(
+    return await _start_stream(
         request=request,
+        db=db,
+        settings=settings,
         database=database,
         gateway=gateway,
         conv=conv,

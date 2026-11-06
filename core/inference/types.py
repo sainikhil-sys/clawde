@@ -15,6 +15,8 @@ Role = Literal["system", "user", "assistant", "tool"]
 class ChatMessage:
     role: Role
     content: str
+    #: Raw image bytes for vision-capable models (empty for text-only messages).
+    images: tuple[bytes, ...] = ()
 
 
 class GenerationParams(BaseModel):

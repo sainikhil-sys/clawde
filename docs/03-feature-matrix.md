@@ -10,8 +10,8 @@ Status: ⬜ not started · 🟨 in progress · ✅ done and tested · ⚠ hardwa
 | Chat | Markdown + syntax highlighting, copy, timestamps | M5 | Full | ✅ |
 | Chat | Edit message / regenerate (branching, version switcher) | M5 | Full | ✅ |
 | Chat | Export (Markdown, JSON) | M5 | Full | ✅ |
-| Files | PDF, TXT, MD, DOCX, CSV, XLSX, JSON, code | M6 | Full | ⬜ |
-| Files | Images: preview + metadata; understanding needs a vision model | M6 | ⚠ vision models are slow on CPU; OCR optional (Tesseract) | ⬜ |
+| Files | PDF, TXT, MD, DOCX, CSV, XLSX, JSON, code: validation, extraction, previews, status, errors | M6 | Full | ✅ |
+| Files | Images: preview + metadata, sent to vision models | M6 | ⚠ no vision model installed yet; no OCR | ✅ |
 | Models | Ollama adapter: list, metadata, chat streaming | M4 | Full | ✅ |
 | Models | Ollama adapter: pull, delete, embeddings | M6, M11 | Full | ⬜ |
 | Models | llama.cpp adapter (llama-server) | M11 | Full (CPU); Vulkan iGPU to test | ⬜ |
@@ -33,7 +33,8 @@ Status: ⬜ not started · 🟨 in progress · ✅ done and tested · ⚠ hardwa
 | Agents | Planner, multi-step, retry, cancel, approvals, history | M10 | Full; reliability depends on model (7B recommended) | ⬜ |
 | Agents | Tools: file read/write, doc search, calculator, JSON, knowledge, project search | M10 | Full | ⬜ |
 | Agents | Sandboxed Python | M10 | Docker tier full; fallback tier ⚠ reduced isolation | ⬜ |
-| Intelligence | RAG, doc QA, summarisation, code gen/explain/debug | M6–M8 | Full | ⬜ |
+| Intelligence | Document QA over attachments (full text or ranked excerpts) | M6 | Full; keyword ranking until an embedding model is installed | ✅ |
+| Intelligence | Project-wide RAG (FAISS), summarisation | M7–M8 | Full | ⬜ |
 | Intelligence | JSON mode / structured output | M5 | Full (Ollama `format: json` + validity check) | ✅ |
 | Intelligence | Tool calling | M10 | Native where supported, JSON fallback otherwise | ⬜ |
 | Intelligence | Prompt templates | M5 | Full | ✅ |

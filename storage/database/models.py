@@ -1,5 +1,5 @@
 """ORM models. M3: sessions, audit log, settings, conversation core. M4: model registry.
-M5: active branch pointer, finish reasons, prompt templates.
+M5: active branch pointer, finish reasons, prompt templates. M6: attachments and document chunks.
 
 Later milestones add their tables through new Alembic revisions (see docs/02-architecture.md §5).
 """
@@ -152,3 +152,60 @@ class PromptTemplate(Base):
     content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class Attachment(Base):
+    """An uploaded file. Stored under `<data_dir>/uploads/<id>/original<.ext>`; the user's filename is
+    only kept for display and never used as a path."""
+
+    __tablename__ = "attachments"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    conversation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
+    filename: Mapped[str] = mapped_column(String(255))
+    kind: Mapped[str] = mapped_column(String(20))  # pdf|docx|xlsx|csv|json|markdown|text|code|image
+    mime_type: Mapped[str] = mapped_column(String(100))
+    size_bytes: Mapped[int] = mapped_column(BigInteger)
+    sha256: Mapped[str] = mapped_column(String(64))
+    stored_path: Mapped[str] = mapped_column(String(300))  # relative to the uploads folder
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending|processing|ready|failed
+    error: Mapped[str | None] = mapped_column(Text)
+    extracted_text: Mapped[str | None] = mapped_column(Text)
+    char_count: Mapped[int | None] = mapped_column(Integer)
+    page_count: Mapped[int | None] = mapped_column(Integer)
+    #: Kind-specific details: image size, sheet names, truncation flags, encoding.
+    meta: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    processed_at: Mapped[datetime | None] = mapped_column()
+
+
+class MessageAttachment(Base):
+    """Links attachments to user messages. A file can belong to several messages (an edited message keeps
+    the original's attachments)."""
+
+    __tablename__ = "message_attachments"
+
+    message_id: Mapped[str] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"), primary_key=True)
+    attachment_id: Mapped[str] = mapped_column(
+        ForeignKey("attachments.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    position: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class DocumentChunk(Base):
+    """A passage of an attachment's extracted text, used to pick relevant excerpts for long documents."""
+
+    __tablename__ = "document_chunks"
+    __table_args__ = (Index("ix_document_chunks_attachment_ordinal", "attachment_id", "ordinal"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    attachment_id: Mapped[str] = mapped_column(ForeignKey("attachments.id", ondelete="CASCADE"))
+    ordinal: Mapped[int] = mapped_column(Integer)
+    char_start: Mapped[int] = mapped_column(Integer)
+    char_end: Mapped[int] = mapped_column(Integer)
+    text: Mapped[str] = mapped_column(Text)
+    #: Optional vector from a local embedding model (None when no embedding model is installed).
+    embedding: Mapped[list[float] | None] = mapped_column(JSON)
+    embedding_model: Mapped[str | None] = mapped_column(String(300))

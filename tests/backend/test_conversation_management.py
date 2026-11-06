@@ -73,7 +73,7 @@ async def test_delete_removes_messages_and_is_audited(client: httpx.AsyncClient)
     assert (event["action"], event["target_id"], event["details"]) == (
         "conversation.delete",
         conv,
-        {"messages": 2},
+        {"messages": 2, "files": 0},
     )
     assert "secret" not in json.dumps(event)
 
