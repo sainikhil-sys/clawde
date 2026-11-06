@@ -4,6 +4,7 @@ import { GeistSans } from "geist/font/sans";
 import "@fontsource-variable/newsreader";
 import "./globals.css";
 
+import { QueryProvider } from "@/components/providers/query-provider";
 import { AppShell } from "@/components/shell/app-shell";
 import { preferenceBootScript } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
@@ -33,7 +34,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <script dangerouslySetInnerHTML={{ __html: preferenceBootScript }} />
       </head>
       <body className="h-full">
-        <AppShell>{children}</AppShell>
+        <QueryProvider>
+          <AppShell>{children}</AppShell>
+        </QueryProvider>
       </body>
     </html>
   );

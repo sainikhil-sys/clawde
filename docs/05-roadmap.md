@@ -10,7 +10,7 @@ chat is model-independent from day one. M11 then builds the full Model Library U
 |---|---|---|---|
 | 1 | Audit & hardware | `docs/01–05` | ✅ Done: repo empty, hardware measured, plan written |
 | 2 | Frontend foundation | Next.js app, design tokens, light/dark, sidebar (8 sections), routing, responsive layout, keyboard nav, empty states | ✅ Done: see progress log |
-| 3 | Backend & database | FastAPI skeleton, settings, structlog, SQLAlchemy models, Alembic, session/CSRF/Host checks, audit log, `/health` | 🧪 pytest: migrations up/down, auth, CSRF rejection, path-traversal tests |
+| 3 | Backend & database | FastAPI skeleton, settings, structlog, SQLAlchemy models, Alembic, session/CSRF/Host checks, audit log, `/health` | ✅ Done: see progress log |
 | 4 | Inference & streaming | `ModelProvider`, Ollama adapter, minimal registry sync, SSE chat endpoint, stop via abort | 🧪 integration test against real Ollama (`llama3.2`), tokens stream, cancel works |
 | 5 | Complete chat | Conversations CRUD, search (FTS5), folders, pin/archive, edit/regenerate branches, continue, retry, markdown/code, export, JSON mode, prompt templates | 🧪 persists across API restart; E2E Playwright happy path |
 | 6 | Files & documents | Upload validation (size/type/magic), extraction for all listed types, previews, status + errors, chunking, embeddings, chat-with-file | 🧪 fixture files per type; malicious files rejected |
@@ -50,6 +50,37 @@ Verified:
 Deferred:
 - Playwright E2E tests move to Milestone 5, once there are real chat workflows to cover.
 - Full Content-Security-Policy is scheduled for Milestone 9 (needs a nonce for the inline preference script).
+
+### Milestone 3: local API and database (2026-11-06)
+Built:
+- `apps/api`: FastAPI 0.162 app factory with lifespan, `clawde-api` CLI (`serve`, `migrate`, `downgrade`,
+  `info`), and typed `CLAWDE_*` config. The API refuses to bind to non-loopback hosts unless explicitly allowed.
+- Storage: SQLAlchemy 2.1 async with SQLite (WAL, foreign keys on) and an Alembic `0001_initial` migration
+  applied at startup. Tables: `app_sessions`, `audit_events`, `settings`, `folders`, `projects`,
+  `conversations`, `messages`.
+- Security: Host allowlist (blocks DNS rebinding), CORS and Origin allowlist, `HttpOnly; SameSite=Strict`
+  session cookie storing only a hash, CSRF header on mutations, 1 MiB body limit, security headers, request IDs.
+- Services: append-only audit log (refuses secret-looking keys), typed settings with change diffs.
+- `storage/local_files.safe_join`: blocks traversal, absolute/drive/UNC paths, reserved device names, ADS,
+  trailing-dot aliasing, and escapes through symlinks or junctions.
+- Logging: structlog with console output and rotating JSON lines in `<data_dir>/logs/api.log`.
+- Web UI: API client with automatic session and CSRF handling and expiry recovery, React Query, live API status
+  (home and Settings), and an Activity log in Settings with loading, empty, error and pagination states.
+
+Verified:
+- 61 backend tests: migrations up/down/up, model–migration drift, FK cascade, cookie flags, token hashing,
+  Origin, Host, CSRF and CORS rejection, expiry, logout replay, body limit, restart persistence, audit
+  without secrets, 31 path-traversal cases including a junction escape.
+- 30 frontend tests (9 new: API client session/CSRF/retry/errors, status panel states).
+- `ruff`, `mypy --strict`, `eslint`, `tsc` all clean.
+- Manual end-to-end run in the browser: session created over CORS, cookie not readable by page scripts,
+  PATCH without CSRF → 403 with no change, reload reuses the session, stopping the API shows "not running"
+  with instructions, and after restart the earlier activity and session are still there.
+
+Notes:
+- The first page load logs one expected 401 in the browser console (checking for a session before creating one).
+- Other local processes running as the same OS user are inside the trust boundary (documented in
+  `apps/api/security.py`).
 
 ## Known limitations (current)
 - CPU-only inference: 7B models run at about 5 tok/s, so small models are the default for interactivity.

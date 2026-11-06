@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 import { Page, PageHeader } from "@/components/page/page";
+import { ActivityLog } from "@/components/settings/activity-log";
 import { ThemeSetting } from "@/components/settings/theme-setting";
+import { ApiStatusPanel } from "@/components/status/api-status";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { APP_VERSION } from "@/lib/app";
 import { SHORTCUTS } from "@/lib/shortcuts";
@@ -36,15 +38,27 @@ export default function SettingsPage() {
           </dl>
         </SettingsSection>
 
+        <SettingsSection title="Local API" description="The backend service on this computer.">
+          <ApiStatusPanel />
+        </SettingsSection>
+
         <SettingsSection title="Privacy" description="How this build handles your data.">
           <ul className="list-disc space-y-2 pl-5 text-sm leading-relaxed text-muted-foreground">
             <li>The interface loads no external resources. Fonts and icons are bundled with the app.</li>
             <li>No analytics or telemetry is collected. Next.js framework telemetry is disabled in the scripts.</li>
             <li>
-              Only your theme and sidebar preferences are stored, in this browser&apos;s local storage. Conversations
-              and other data will live in a local database once the API arrives in Milestone 3.
+              The interface talks only to the local API on this computer, which listens on the loopback address and
+              accepts requests only from this interface.
+            </li>
+            <li>
+              Theme and sidebar preferences stay in this browser. Everything else lives in a local database in your user
+              data folder, outside the project.
             </li>
           </ul>
+        </SettingsSection>
+
+        <SettingsSection title="Activity" description="Security-relevant events recorded by the local API.">
+          <ActivityLog />
         </SettingsSection>
 
         <SettingsSection title="About">
@@ -52,7 +66,7 @@ export default function SettingsPage() {
             <dt className="text-muted-foreground">Version</dt>
             <dd className="font-mono">{APP_VERSION}</dd>
             <dt className="text-muted-foreground">Build stage</dt>
-            <dd>Milestone 2: interface foundation</dd>
+            <dd>Milestone 3: local API and database</dd>
           </dl>
         </SettingsSection>
       </div>

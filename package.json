@@ -4,9 +4,14 @@
   "packageManager": "pnpm@11.10.0",
   "scripts": {
     "dev:web": "pnpm --filter desktop dev",
+    "dev:api": "uv run clawde-api serve --reload",
     "build:web": "pnpm --filter desktop build",
     "lint:web": "pnpm --filter desktop lint",
     "typecheck:web": "pnpm --filter desktop typecheck",
-    "test:web": "pnpm --filter desktop test"
+    "test:web": "pnpm --filter desktop test",
+    "lint:api": "uv run ruff check . && uv run ruff format --check .",
+    "typecheck:api": "uv run mypy",
+    "test:api": "uv run pytest",
+    "check": "pnpm lint:api && pnpm typecheck:api && pnpm test:api && pnpm lint:web && pnpm typecheck:web && pnpm test:web"
   }
 }

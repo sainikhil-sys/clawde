@@ -41,8 +41,11 @@ Status: ⬜ not started · 🟨 in progress · ✅ done and tested · ⚠ hardwa
 | Research | LoRA fine-tuning (PEFT), adapter mgmt, logs, checkpoints | M12 | ⚠ CPU: ≤0.5–1.5B base models, hours per run | ⬜ |
 | Research | Benchmarks & model comparison | M12 | Full | ⬜ |
 | Research | Merge LoRA → GGUF → register in library | M12 | ⚠ needs llama.cpp convert scripts; small models only | ⬜ |
-| Security | Session, CSRF, Host check, validation, size limits, path safety | M3 onward | Full | ⬜ |
-| Security | Audit log, export & delete all data | M3, M13 | Full | ⬜ |
+| Security | Session, CSRF, Host check, Origin/CORS, validation, size limits, path safety | M3 | Full | ✅ |
+| Security | Audit log (API + Settings view) | M3 | Full | ✅ |
+| Security | Export & delete all data | M13 | Full | ⬜ |
+| Storage | SQLite + Alembic migrations, PostgreSQL-compatible models | M3 | Full | ✅ |
+| Storage | Structured JSON logs | M3 | Full | ✅ |
 | UX | Light/dark/system theme, persisted, no flash | M2 | Full | ✅ |
 | UX | Sidebar with 8 sections, collapse, mobile drawer | M2 | Full | ✅ |
 | UX | Keyboard navigation: skip link, `Ctrl+K` palette, `Ctrl+.` sidebar, focus rings | M2 | Full | ✅ |

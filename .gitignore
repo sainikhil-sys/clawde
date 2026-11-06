@@ -41,3 +41,4 @@ runs/
 Thumbs.db
 .vscode/
 .idea/
+.dev-migrations.db*

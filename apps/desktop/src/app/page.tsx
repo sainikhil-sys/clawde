@@ -3,11 +3,12 @@ import { ArrowRight } from "lucide-react";
 
 import { LogoMark } from "@/components/brand/logo";
 import { Page } from "@/components/page/page";
+import { ApiStatusLine } from "@/components/status/api-status";
 
 const NEXT_STEPS = [
-  { milestone: 3, text: "Local API and database, so conversations persist between restarts." },
   { milestone: 4, text: "Streaming responses from the models already installed in Ollama." },
   { milestone: 5, text: "Full conversation view: history, editing, regenerating and export." },
+  { milestone: 6, text: "Attach PDFs, documents, spreadsheets, code and images to a conversation." },
 ];
 
 export default function NewChatPage() {
@@ -18,9 +19,10 @@ export default function NewChatPage() {
         What would you like to work on?
       </h1>
       <p className="mt-4 leading-relaxed text-muted-foreground">
-        Clawde runs entirely on this computer. The conversation composer appears here once the local API and model
-        streaming are connected. Until then, there is no chat to send to.
+        Clawde runs entirely on this computer. The conversation composer appears here once model streaming is connected
+        in the next milestone. Until then, there is no chat to send to.
       </p>
+      <ApiStatusLine className="mt-4" />
 
       <section aria-labelledby="next-heading" className="mt-10 rounded-lg border bg-card p-5">
         <h2 id="next-heading" className="text-sm font-medium">

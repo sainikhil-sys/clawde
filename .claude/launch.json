@@ -7,6 +7,13 @@
       "runtimeArgs": ["--filter", "desktop", "dev"],
       "port": 3000,
       "url": "http://127.0.0.1:3000"
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "clawde-api", "serve", "--reload"],
+      "port": 8000,
+      "url": "http://127.0.0.1:8000"
     }
   ]
 }
