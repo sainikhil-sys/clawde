@@ -9,7 +9,7 @@ chat is model-independent from day one. M11 then builds the full Model Library U
 | # | Milestone | Deliverables | Acceptance (automated where marked 🧪) |
 |---|---|---|---|
 | 1 | Audit & hardware | `docs/01–05` | ✅ Done: repo empty, hardware measured, plan written |
-| 2 | Frontend foundation | Next.js app, design tokens, light/dark, sidebar (8 sections), routing, responsive layout, keyboard nav, empty states | 🧪 lint + typecheck + component tests; every nav item routes to a real page |
+| 2 | Frontend foundation | Next.js app, design tokens, light/dark, sidebar (8 sections), routing, responsive layout, keyboard nav, empty states | ✅ Done: see progress log |
 | 3 | Backend & database | FastAPI skeleton, settings, structlog, SQLAlchemy models, Alembic, session/CSRF/Host checks, audit log, `/health` | 🧪 pytest: migrations up/down, auth, CSRF rejection, path-traversal tests |
 | 4 | Inference & streaming | `ModelProvider`, Ollama adapter, minimal registry sync, SSE chat endpoint, stop via abort | 🧪 integration test against real Ollama (`llama3.2`), tokens stream, cancel works |
 | 5 | Complete chat | Conversations CRUD, search (FTS5), folders, pin/archive, edit/regenerate branches, continue, retry, markdown/code, export, JSON mode, prompt templates | 🧪 persists across API restart; E2E Playwright happy path |
@@ -25,6 +25,31 @@ chat is model-independent from day one. M11 then builds the full Model Library U
 ## Rough effort
 M2–M5 make up the usable core (a local chat app with streaming and persistence). M6–M10 add the Claude-style
 workflows. M11–M12 are the model-power-user layers. Every milestone is a working increment, never a mock.
+
+## Progress log
+
+### Milestone 2: interface foundation (2026-11-06)
+Built:
+- `apps/desktop`: Next.js 16.4 (App Router, Cache Components), React 19.3, Tailwind 4, shadcn/ui (Radix), Motion, Lucide.
+- Design tokens: warm neutrals with one verdigris accent, in light and dark. Newsreader for headings, Geist for
+  UI and code. All fonts are bundled from npm, so no network is needed at build or run time.
+- Shell: collapsible sidebar (state persists and is applied before first paint, so no flash), mobile drawer,
+  skip link, `Ctrl+K` command palette (sections plus theme and sidebar commands), `Ctrl+.` sidebar toggle.
+- Routes for all 8 sections. Sections without a backend show an empty state that names the milestone that
+  delivers them, and contain no dead buttons. Settings: working theme picker, shortcuts list, privacy facts.
+- Baseline security headers. Next.js telemetry is disabled, and the dev server binds to `127.0.0.1`.
+
+Verified:
+- 21 unit/component tests passing (navigation config, every nav route has a page file, preference store and boot
+  script, sidebar active state, collapse, palette search → navigation, theme switching, mobile drawer).
+- `eslint`, `tsc`, `prettier --check` and `next build` all clean; all routes prerender statically.
+- Manual run in a browser: every nav link reaches the right page and title, theme and sidebar survive a reload,
+  mobile drawer navigates and closes, no horizontal scroll at 375px, no console errors. All resource requests
+  went to `127.0.0.1:3000` only.
+
+Deferred:
+- Playwright E2E tests move to Milestone 5, once there are real chat workflows to cover.
+- Full Content-Security-Policy is scheduled for Milestone 9 (needs a nonce for the inline preference script).
 
 ## Known limitations (current)
 - CPU-only inference: 7B models run at about 5 tok/s, so small models are the default for interactivity.

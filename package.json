@@ -1,0 +1,12 @@
+{
+  "name": "clawde",
+  "private": true,
+  "packageManager": "pnpm@11.10.0",
+  "scripts": {
+    "dev:web": "pnpm --filter desktop dev",
+    "build:web": "pnpm --filter desktop build",
+    "lint:web": "pnpm --filter desktop lint",
+    "typecheck:web": "pnpm --filter desktop typecheck",
+    "test:web": "pnpm --filter desktop test"
+  }
+}

@@ -8,7 +8,9 @@ and `uv.lock` when each package is first added, not guessed here.
 |---|---|
 | next, react, react-dom, typescript | App framework |
 | tailwindcss | Styling |
-| shadcn/ui (radix-ui primitives, class-variance-authority, tailwind-merge, clsx) | Accessible components (copied into repo) |
+| shadcn/ui (radix-ui primitives, class-variance-authority, `cn` class merger, cmdk, tw-animate-css) | Accessible components (copied into repo) |
+| geist, @fontsource-variable/newsreader | Fonts bundled locally (no Google Fonts fetch, works offline) |
+| cross-env | Disables Next.js telemetry cross-platform in npm scripts |
 | motion | Subtle animations |
 | lucide-react | Icons |
 | @tanstack/react-query | Server state, caching, retries |

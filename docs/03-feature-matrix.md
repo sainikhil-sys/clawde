@@ -43,4 +43,7 @@ Status: ⬜ not started · 🟨 in progress · ✅ done and tested · ⚠ hardwa
 | Research | Merge LoRA → GGUF → register in library | M12 | ⚠ needs llama.cpp convert scripts; small models only | ⬜ |
 | Security | Session, CSRF, Host check, validation, size limits, path safety | M3 onward | Full | ⬜ |
 | Security | Audit log, export & delete all data | M3, M13 | Full | ⬜ |
-| UX | Light/dark, responsive, keyboard navigation | M2 onward | Full | ⬜ |
+| UX | Light/dark/system theme, persisted, no flash | M2 | Full | ✅ |
+| UX | Sidebar with 8 sections, collapse, mobile drawer | M2 | Full | ✅ |
+| UX | Keyboard navigation: skip link, `Ctrl+K` palette, `Ctrl+.` sidebar, focus rings | M2 | Full | ✅ |
+| UX | Command palette: conversation and project search | M5, M7 | Full | ⬜ |
