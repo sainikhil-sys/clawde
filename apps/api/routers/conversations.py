@@ -16,7 +16,7 @@ from services.conversation import service as conversations
 from services.conversation.context import build_turn
 from services.conversation.service import MessageTree
 from services.settings import service as settings_service
-from storage.database.models import Attachment, Conversation, Folder, Message, ModelRecord
+from storage.database.models import Attachment, Conversation, Folder, Message, ModelRecord, Project
 
 from ..deps import DatabaseDep, DbDep, GatewayDep, SettingsDep
 from ..security import CsrfSessionDep, SessionDep, api_error, client_ip
@@ -94,6 +94,7 @@ class ConversationCreate(BaseModel):
 
     title: str | None = Field(default=None, max_length=300)
     model_id: str | None = Field(default=None, max_length=300)
+    project_id: str | None = Field(default=None, max_length=32)
 
 
 class ConversationPatch(BaseModel):
@@ -258,7 +259,17 @@ async def _start_stream(
         params = params.model_copy(
             update={"context_length": min(params.context_length, model.context_length)}
         )
-    turn = await build_turn(db, gateway, settings.uploads_dir, history_rows, model, params)
+    project = await db.get(Project, conv.project_id) if conv.project_id else None
+    turn = await build_turn(
+        db,
+        gateway,
+        settings.uploads_dir,
+        history_rows,
+        model,
+        params,
+        project=project,
+        indexes_dir=settings.indexes_dir,
+    )
     start: dict[str, Any] = {
         "conversation": ConversationOut.model_validate(conv).model_dump(mode="json"),
         "user_message": message_payload(user_message) if user_message else None,
@@ -296,11 +307,18 @@ async def list_conversations(
     archived: bool = False,
     folder_id: Annotated[str | None, Query(max_length=32)] = None,
     pinned: bool | None = None,
+    project_id: Annotated[str | None, Query(max_length=32)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 30,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[ConversationSummary]:
     rows = await conversations.list_conversations(
-        db, archived=archived, folder_id=folder_id, pinned=pinned, limit=limit, offset=offset
+        db,
+        archived=archived,
+        folder_id=folder_id,
+        pinned=pinned,
+        project_id=project_id,
+        limit=limit,
+        offset=offset,
     )
     return [
         ConversationSummary.model_validate(
@@ -331,7 +349,17 @@ async def search_conversations(
 
 @router.post("", response_model=ConversationOut, status_code=status.HTTP_201_CREATED)
 async def create_conversation(body: ConversationCreate, _: CsrfSessionDep, db: DbDep) -> ConversationOut:
-    conv = await conversations.create(db, title=body.title, model_id=body.model_id)
+    if body.project_id is not None:
+        project = await db.get(Project, body.project_id)
+        if project is None:
+            raise api_error(status.HTTP_404_NOT_FOUND, "project_not_found", "Project not found.")
+        if project.archived_at is not None:
+            raise api_error(
+                status.HTTP_409_CONFLICT, "project_archived", "Unarchive the project to start new chats."
+            )
+    conv = await conversations.create(
+        db, title=body.title, model_id=body.model_id, project_id=body.project_id
+    )
     await db.commit()
     return ConversationOut.model_validate(conv)
 

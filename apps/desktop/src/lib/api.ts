@@ -260,7 +260,27 @@ export type SearchHit = {
   snippet: string;
   message_id: string | null;
 };
-export type ConversationFilter = { archived?: boolean; pinned?: boolean; folderId?: string; limit?: number };
+export type ConversationFilter = {
+  archived?: boolean;
+  pinned?: boolean;
+  folderId?: string;
+  projectId?: string;
+  limit?: number;
+};
+
+export type Project = {
+  id: string;
+  name: string;
+  description: string;
+  instructions: string;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+  conversation_count: number;
+  knowledge_count: number;
+};
+export type ProjectPatch = Partial<Pick<Project, "name" | "description" | "instructions">> & { archived?: boolean };
+export type ProjectHit = { kind: "conversation" | "knowledge"; id: string; title: string; snippet: string };
 export type ConversationPatch = Partial<Pick<Conversation, "title" | "pinned" | "archived" | "folder_id">>;
 
 export type TurnEvent =
@@ -300,6 +320,7 @@ export const api = {
     if (filter.archived) q.set("archived", "true");
     if (filter.pinned !== undefined) q.set("pinned", String(filter.pinned));
     if (filter.folderId) q.set("folder_id", filter.folderId);
+    if (filter.projectId) q.set("project_id", filter.projectId);
     if (filter.limit) q.set("limit", String(filter.limit));
     const qs = q.toString();
     return apiRequest<ConversationSummary[]>(`/api/conversations${qs ? `?${qs}` : ""}`, { signal });
@@ -345,10 +366,31 @@ export const api = {
     const filename = /filename="?([^";]+)"?/.exec(disposition)?.[1] ?? "file";
     return { blob: await resp.blob(), filename: decodeURIComponent(filename) };
   },
+  projects: (archived = false, signal?: AbortSignal) =>
+    apiRequest<Project[]>(`/api/projects${archived ? "?archived=true" : ""}`, { signal }),
+  project: (id: string, signal?: AbortSignal) =>
+    apiRequest<Project>(`/api/projects/${encodeURIComponent(id)}`, { signal }),
+  createProject: (body: { name: string; description?: string; instructions?: string }) =>
+    apiRequest<Project>("/api/projects", { method: "POST", body }),
+  updateProject: (id: string, patch: ProjectPatch) =>
+    apiRequest<Project>(`/api/projects/${encodeURIComponent(id)}`, { method: "PATCH", body: patch }),
+  deleteProject: (id: string) => apiRequest<void>(`/api/projects/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  projectKnowledge: (id: string, signal?: AbortSignal) =>
+    apiRequest<Attachment[]>(`/api/projects/${encodeURIComponent(id)}/knowledge`, { signal }),
+  searchProject: (id: string, query: string, signal?: AbortSignal) =>
+    apiRequest<ProjectHit[]>(`/api/projects/${encodeURIComponent(id)}/search?q=${encodeURIComponent(query)}`, {
+      signal,
+    }),
+  exportProject: async (id: string) => {
+    const resp = await apiFetch(`/api/projects/${encodeURIComponent(id)}/export`);
+    const disposition = resp.headers.get("Content-Disposition") ?? "";
+    const filename = /filename="?([^";]+)"?/.exec(disposition)?.[1] ?? "project.zip";
+    return { blob: await resp.blob(), filename };
+  },
   deleteTemplate: (id: string) => apiRequest<void>(`/api/templates/${encodeURIComponent(id)}`, { method: "DELETE" }),
   conversation: (id: string, signal?: AbortSignal) =>
     apiRequest<ConversationDetail>(`/api/conversations/${encodeURIComponent(id)}`, { signal }),
-  createConversation: (body: { title?: string; model_id?: string } = {}) =>
+  createConversation: (body: { title?: string; model_id?: string; project_id?: string } = {}) =>
     apiRequest<Conversation>("/api/conversations", { method: "POST", body }),
 };
 
@@ -397,7 +439,13 @@ export async function* streamTurn(
  */
 export async function uploadAttachment(
   file: File,
-  opts: { conversationId?: string | null; onProgress?: (fraction: number) => void; signal?: AbortSignal } = {},
+  opts: {
+    conversationId?: string | null;
+    /** Upload into a project's knowledge instead of a chat. */
+    projectId?: string;
+    onProgress?: (fraction: number) => void;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<Attachment> {
   const send = async (retry: boolean): Promise<Attachment> => {
     const token = await ensureSession();
@@ -406,7 +454,10 @@ export async function uploadAttachment(
     if (opts.conversationId) form.append("conversation_id", opts.conversationId);
     return new Promise<Attachment>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open("POST", `${apiBase()}/api/attachments`);
+      const path = opts.projectId
+        ? `/api/projects/${encodeURIComponent(opts.projectId)}/knowledge`
+        : "/api/attachments";
+      xhr.open("POST", `${apiBase()}${path}`);
       xhr.withCredentials = true;
       xhr.setRequestHeader("X-CSRF-Token", token);
       xhr.upload.onprogress = (e) => {

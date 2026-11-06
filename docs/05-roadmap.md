@@ -14,7 +14,7 @@ chat is model-independent from day one. M11 then builds the full Model Library U
 | 4 | Inference & streaming | `ModelProvider`, Ollama adapter, minimal registry sync, SSE chat endpoint, stop via abort | ✅ Done: see progress log |
 | 5 | Complete chat | Conversations CRUD, search, folders, pin/archive, edit/regenerate branches, continue, retry, markdown/code, export, JSON mode, prompt templates | ✅ Done: see progress log |
 | 6 | Files & documents | Upload validation (size/type/magic), extraction for all listed types, previews, status + errors, chunking, embeddings, chat-with-file | ✅ Done: see progress log |
-| 7 | Projects | Project CRUD, instructions, knowledge, scoped chats, per-project FAISS, search, export/delete | 🧪 isolation test: project A retrieval never returns B's chunks |
+| 7 | Projects | Project CRUD, instructions, knowledge, scoped chats, per-project FAISS, search, export/delete | ✅ Done: see progress log |
 | 8 | Memory & retrieval | 5 memory kinds, CRUD/inspect UI, ranking, summarisation, context budgeting | 🧪 memory survives restart; deleted memory never retrieved |
 | 9 | Artifacts | Sandbox origin server, iframe runtime, all artifact types, editor, versions, diff, fullscreen, export | 🧪 security tests: artifact cannot read parent cookies/DOM or call API |
 | 10 | Agents & permissions | Tool registry, 8 tools, planner/executor, approvals UI, retry, cancel, history, Docker + fallback sandbox | 🧪 denied tool never runs; write outside workspace blocked; cancel mid-run |
@@ -203,6 +203,47 @@ Limitations:
   provider but not with a real model.
 - No embedding model is installed, so retrieval is keyword-based (BM25) until one is pulled, e.g. `nomic-embed-text`
   (a ~270 MB download, needs internet once).
+
+### Milestone 7: projects (2026-11-06)
+Built:
+- Projects API: create, list (with chat and file counts), update name/description/instructions, archive (no new chats
+  while archived), delete (all chats, knowledge files on disk and the search index; audited with counts only).
+- Project knowledge: `POST /api/projects/{id}/knowledge` reuses the upload pipeline (same validation and extraction)
+  and stores files with `attachments.project_id` (migration `0005`). Up to 200 files per project.
+- Retrieval per project (`services/retrieval/project_index.py`): BM25 over the project's chunks always, plus a FAISS
+  `IndexFlatIP` (cosine) per project at `<data_dir>/indexes/project-<id>.faiss` when chunks have embeddings. The
+  index is rebuilt automatically when the chunk set changes (signature check), written atomically, and treated as
+  disposable (a corrupt file is rebuilt). Candidates from both are blended by the existing ranker.
+- Project chats: the project's instructions lead the system prompt, followed by the most relevant passages from the
+  project's knowledge (or the full text if it fits), marked `source="project knowledge"`, alongside any files
+  attached to the chat. All system content is sent as one message so it works the same on every backend.
+- Isolation: every retrieval starts from a database filter on the project id, and each project has its own index
+  file. Project search covers only that project's chats and files.
+- Export: a zip with `project.json` (`clawde.project.v1`), every chat as JSON, and the knowledge files (original +
+  extracted text).
+- Web UI: projects list (active/archived, counts, empty state, create dialog); project page with instructions editor,
+  knowledge panel (upload with progress, drag-and-drop, status, preview, remove), the project's chats, project
+  search, and a menu to edit/archive/export/delete with an explicit confirmation of what is lost; "New chat" inside a
+  project; a project breadcrumb in the chat header; projects in `Ctrl+K`.
+
+Verified:
+- 166 backend tests, including isolation with BM25 and with FAISS vectors (two projects with conflicting
+  "vault codes": each chat sees only its own), index rebuild after a file is removed, export contents, complete
+  deletion, the single system message, FAISS persist/reload/dimension check/corruption recovery.
+- 66 frontend tests (projects list, create, instructions save, knowledge upload to the project endpoint, delete
+  confirmation).
+- 4 end-to-end tests: llama3.2 answered with a codename that existed only in "Garden Club"'s knowledge file, a new
+  chat in "Chess Club" did not reveal it, and project search found the file only in Garden Club.
+
+Fixed during verification:
+- `IndexMeta` couldn't be serialised (slots dataclass): building any vector index would have crashed. Found by the
+  isolation test with vectors.
+- Backend test setup now copies a database migrated once per session (suite: 121 s → 30 s).
+- An early E2E failure looked like Ollama dropping a second system message. Testing Ollama directly showed it
+  doesn't (the test had clicked the sidebar's "New chat"). Merging into one system message was kept as a backend-
+  independent safeguard, with the reason documented accurately.
+
+Deferred: project memory is part of the memory system (Milestone 8).
 
 ## Known limitations (current)
 - CPU-only inference: 7B models run at about 5 tok/s, so small models are the default for interactivity.

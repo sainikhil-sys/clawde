@@ -65,7 +65,7 @@ def test_migrations_match_models(tmp_path: Path) -> None:
 
 
 def test_head_revision_is_single() -> None:
-    assert migrate.head_revision() == "0004_attachments"
+    assert migrate.head_revision() == "0005_project_knowledge"
 
 
 async def test_foreign_keys_enforced_and_cascade(tmp_path: Path) -> None:

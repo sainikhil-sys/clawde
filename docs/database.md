@@ -118,5 +118,12 @@ belong to several messages (an edited message keeps the original's files).
 `id` PK · `attachment_id` FK (cascade) · `ordinal` · `char_start` · `char_end` · `text` · `embedding` JSON null ·
 `embedding_model` null. Index on (`attachment_id`, `ordinal`).
 
+## Revision `0005_project_knowledge` (Milestone 7)
+
+- `attachments.project_id` FK → projects, `ON DELETE CASCADE`, indexed: set for project knowledge files (which have
+  no conversation and are never linked to a message).
+- Vector indexes are files, not tables: `<data_dir>/indexes/project-<id>.faiss` + `.json` (embedding model,
+  dimension, chunk signature). They are rebuilt from `document_chunks` whenever the signature changes.
+
 Planned tables (memories, artifacts, models, agent runs, evaluations, research
 runs) are listed in `docs/02-architecture.md` §5 and arrive with their milestones.

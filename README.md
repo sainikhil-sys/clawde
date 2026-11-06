@@ -6,7 +6,8 @@ and a research and training studio. It runs on open-weight models and needs no p
 **Status:** Milestone 5 (complete chat) done. Chat with any model installed in Ollama, with Markdown and
 highlighted code, editing, regenerating, continuing and retrying (with version history), stop, timestamps,
 search, folders, pin/archive, export, prompt templates and JSON mode, plus file attachments (PDF, Word, Excel,
-CSV, JSON, Markdown, text, source code, images) that the model reads. Projects arrive in Milestone 7.
+CSV, JSON, Markdown, text, source code, images) that the model reads, and projects with shared instructions
+and knowledge files, each with its own isolated search index. Persistent memory arrives in Milestone 8.
 
 ## Requirements
 
@@ -90,6 +91,8 @@ storage/local_files/ Path-traversal-safe file access (safe_join)
 services/document_processing/  File type validation, text extraction, chunking
 services/retrieval/  Passage ranking (BM25, optional embeddings)
 services/attachments/ Upload storage, background processing, model context
+services/projects/   Project listing, search, export, deletion
+storage/vector_index/ Per-scope FAISS indexes (one per project)
 tests/backend/       API, database and migration tests
 tests/security/      Path safety tests
 tests/integration/   Live tests against a running Ollama

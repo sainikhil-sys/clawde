@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { LogoMark } from "@/components/brand/logo";
 import { ConversationMenu } from "@/components/conversation/conversation-menu";
 import { useApiHealth } from "@/hooks/use-api-health";
+import { useProject } from "@/hooks/use-projects";
 import { ACCEPT, useComposerAttachments } from "@/hooks/use-composer-attachments";
 import {
   useAppSettings,
@@ -35,7 +36,14 @@ function errorText(err: unknown, fallback: string): string {
 }
 
 /** `conversationId` null = a new chat (home page). The conversation is created on first send. */
-export function ChatView({ conversationId }: { conversationId: string | null }) {
+export function ChatView({
+  conversationId,
+  projectId: newChatProjectId,
+}: {
+  conversationId: string | null;
+  /** For a new chat started inside a project. */
+  projectId?: string;
+}) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const health = useApiHealth();
@@ -45,6 +53,8 @@ export function ChatView({ conversationId }: { conversationId: string | null }) 
   const updateSettings = useUpdateSettings();
   const conversation = useConversation(conversationId);
   const live = useLiveTurn(conversationId);
+  const projectId = conversation.data?.project_id ?? newChatProjectId ?? null;
+  const project = useProject(projectId);
   const [params, setParams] = useGenerationParams();
   const [draft, setDraft] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
@@ -125,7 +135,7 @@ export function ChatView({ conversationId }: { conversationId: string | null }) 
     let id = conversationId;
     if (!id) {
       try {
-        id = (await api.createConversation({ model_id: modelId })).id;
+        id = (await api.createConversation({ model_id: modelId, project_id: newChatProjectId })).id;
       } catch (err) {
         setDraft(content);
         setSendError(errorText(err, "Couldn't start a conversation."));
@@ -212,6 +222,20 @@ export function ChatView({ conversationId }: { conversationId: string | null }) 
       )}
       {conv && !notFound && (
         <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4 sm:px-6">
+          {project.data && (
+            <>
+              <Link
+                href={`/projects/${project.data.id}`}
+                className="max-w-40 shrink-0 truncate text-sm text-muted-foreground hover:text-foreground hover:underline"
+                title={`Project: ${project.data.name}`}
+              >
+                {project.data.name}
+              </Link>
+              <span className="text-muted-foreground" aria-hidden="true">
+                /
+              </span>
+            </>
+          )}
           <h1 className="min-w-0 flex-1 truncate text-sm font-medium" title={conv.title}>
             {conv.title}
           </h1>
@@ -247,7 +271,7 @@ export function ChatView({ conversationId }: { conversationId: string | null }) 
               Couldn&apos;t load this conversation: {conversation.error.message}
             </p>
           ) : empty ? (
-            <EmptyChat />
+            <EmptyChat projectName={project.data?.name} />
           ) : (
             <>
               {live && live.historyDropped > 0 && (
@@ -363,13 +387,19 @@ export function ChatView({ conversationId }: { conversationId: string | null }) 
   );
 }
 
-function EmptyChat() {
+function EmptyChat({ projectName }: { projectName?: string }) {
   return (
     <div className="flex flex-col items-center pt-[12vh] text-center">
       <LogoMark className="size-8 text-primary" />
       <h1 className="mt-5 font-heading text-3xl font-medium tracking-tight text-balance sm:text-4xl">
         What would you like to work on?
       </h1>
+      {projectName && (
+        <p className="mt-3 text-sm text-muted-foreground">
+          New chat in <span className="font-medium text-foreground">{projectName}</span>. It uses the project&apos;s
+          instructions and knowledge files.
+        </p>
+      )}
     </div>
   );
 }

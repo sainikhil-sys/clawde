@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { MessageSquare, Monitor, Moon, PanelLeft, Sun } from "lucide-react";
+import { FolderKanban, MessageSquare, Monitor, Moon, PanelLeft, Sun } from "lucide-react";
 import { useDeferredValue, useState } from "react";
 
 import {
@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/command";
 import { useApiHealth } from "@/hooks/use-api-health";
 import { useConversationSearch } from "@/hooks/use-chat";
+import { useProjects } from "@/hooks/use-projects";
 import { NAV_ITEMS } from "@/lib/navigation";
 import { setThemePreference, toggleSidebar, type ThemePreference } from "@/lib/preferences";
 
@@ -28,7 +29,7 @@ const THEME_COMMANDS: { value: ThemePreference; label: string; icon: typeof Sun 
 
 /**
  * Search & commands: conversations (titles and message text, searched by the API), sections and app
- * commands. Project search is added with projects in Milestone 7.
+ * commands, and projects by name.
  */
 export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const router = useRouter();
@@ -36,6 +37,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   const deferred = useDeferredValue(query.trim());
   const health = useApiHealth();
   const results = useConversationSearch(deferred, open && health.isSuccess && deferred.length >= 2);
+  const projects = useProjects();
 
   function run(action: () => void) {
     onOpenChange(false);
@@ -85,6 +87,21 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                       <span className="block truncate text-xs text-muted-foreground">{h.snippet}</span>
                     )}
                   </span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
+          {open && (projects.data?.length ?? 0) > 0 && (
+            <CommandGroup heading="Projects">
+              {projects.data!.map((p) => (
+                <CommandItem
+                  key={p.id}
+                  value={`project ${p.name}`}
+                  keywords={[p.description]}
+                  onSelect={() => run(() => router.push(`/projects/${p.id}`))}
+                >
+                  <FolderKanban aria-hidden="true" />
+                  <span className="truncate">{p.name}</span>
                 </CommandItem>
               ))}
             </CommandGroup>

@@ -1,5 +1,6 @@
 """ORM models. M3: sessions, audit log, settings, conversation core. M4: model registry.
 M5: active branch pointer, finish reasons, prompt templates. M6: attachments and document chunks.
+M7: project knowledge (attachments.project_id).
 
 Later milestones add their tables through new Alembic revisions (see docs/02-architecture.md §5).
 """
@@ -164,6 +165,8 @@ class Attachment(Base):
     conversation_id: Mapped[str | None] = mapped_column(
         ForeignKey("conversations.id", ondelete="CASCADE"), index=True
     )
+    #: Set for project knowledge files (shared by every chat in the project, never linked to a message).
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     filename: Mapped[str] = mapped_column(String(255))
     kind: Mapped[str] = mapped_column(String(20))  # pdf|docx|xlsx|csv|json|markdown|text|code|image
     mime_type: Mapped[str] = mapped_column(String(100))

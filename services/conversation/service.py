@@ -35,8 +35,10 @@ def title_from_text(text: str) -> str:
     return (cut or line[:TITLE_MAX_CHARS]) + "…"
 
 
-async def create(db: AsyncSession, *, title: str | None = None, model_id: str | None = None) -> Conversation:
-    conv = Conversation(title=title or DEFAULT_TITLE, model_id=model_id)
+async def create(
+    db: AsyncSession, *, title: str | None = None, model_id: str | None = None, project_id: str | None = None
+) -> Conversation:
+    conv = Conversation(title=title or DEFAULT_TITLE, model_id=model_id, project_id=project_id)
     db.add(conv)
     await db.flush()
     return conv
@@ -59,11 +61,14 @@ async def list_conversations(
     archived: bool = False,
     folder_id: str | None = None,
     pinned: bool | None = None,
+    project_id: str | None = None,
     limit: int = 30,
     offset: int = 0,
 ) -> list[tuple[Conversation, int]]:
     """Pinned first, then most recently updated."""
     stmt = select(Conversation).where(Conversation.archived.is_(archived))
+    if project_id is not None:
+        stmt = stmt.where(Conversation.project_id == project_id)
     if folder_id is not None:
         stmt = stmt.where(Conversation.folder_id == folder_id)
     if pinned is not None:

@@ -91,6 +91,10 @@ class Settings(BaseSettings):
     def uploads_dir(self) -> Path:
         return self.data_dir / "uploads"
 
+    @property
+    def indexes_dir(self) -> Path:
+        return self.data_dir / "indexes"
+
 
 @lru_cache
 def get_settings() -> Settings:

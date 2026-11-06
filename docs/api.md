@@ -30,7 +30,7 @@ Base URL: `http://127.0.0.1:8000`. With the API running, live OpenAPI docs are a
 | PATCH | `/api/settings` | cookie + CSRF | Partial update; unknown keys → 422; changes are audited |
 | GET | `/api/audit?limit=50&before_id=` | cookie | Newest-first audit events, `{events, next_before_id}` |
 | GET | `/api/models?include_unavailable=false` | cookie | Syncs the registry with all providers, returns `{models, providers}`. Each model has `chat: bool` |
-| GET | `/api/conversations?archived=&pinned=&folder_id=&limit=&offset=` | cookie | Pinned first, then most recently updated, with `message_count` |
+| GET | `/api/conversations?archived=&pinned=&folder_id=&project_id=&limit=&offset=` | cookie | Pinned first, then most recently updated, with `message_count` |
 | GET | `/api/conversations/search?q=&limit=20` | cookie | Title and message-text matches: `[{conversation, match, snippet, message_id}]` |
 | PATCH | `/api/conversations/{id}` | cookie + CSRF | `{title?, pinned?, archived?, folder_id?}`; `folder_id: null` removes it from its folder |
 | DELETE | `/api/conversations/{id}` | cookie + CSRF | Deletes the conversation and all its messages (audited) |
@@ -43,11 +43,16 @@ Base URL: `http://127.0.0.1:8000`. With the API running, live OpenAPI docs are a
 | GET | `/api/attachments/{id}/text?offset=&limit=` | cookie | Extracted text in pages (409 `not_ready` while processing) |
 | GET | `/api/attachments/{id}/content` | cookie | Original file: images inline, everything else as a download; CSP `sandbox` |
 | DELETE | `/api/attachments/{id}` | cookie + CSRF | Only unsent files (409 `attachment_in_use` otherwise) |
+| GET/POST | `/api/projects?archived=` | cookie (+ CSRF) | List with `conversation_count`, `knowledge_count` / create `{name, description?, instructions?}` |
+| GET/PATCH/DELETE | `/api/projects/{id}` | cookie (+ CSRF) | Read / update `{name?, description?, instructions?, archived?}` / delete everything in it (audited) |
+| GET/POST | `/api/projects/{id}/knowledge` | cookie (+ CSRF) | List knowledge files / upload one (multipart `file`; same validation as attachments) |
+| GET | `/api/projects/{id}/search?q=` | cookie | `[{kind: conversation\|knowledge, id, title, snippet}]`, this project only |
+| GET | `/api/projects/{id}/export` | cookie | Zip: `project.json`, `conversations/*.json`, `knowledge/` (+ `knowledge/extracted/*.txt`) |
 | GET/POST | `/api/folders` | cookie (+ CSRF) | List (with `conversation_count`) / create `{name}` |
 | PATCH/DELETE | `/api/folders/{id}` | cookie + CSRF | Rename / delete (conversations are kept) |
 | GET/POST | `/api/templates` | cookie (+ CSRF) | List / create `{name, content}` |
 | PATCH/DELETE | `/api/templates/{id}` | cookie + CSRF | Update / delete |
-| POST | `/api/conversations` | cookie + CSRF | `{title?, model_id?}` → conversation (201) |
+| POST | `/api/conversations` | cookie + CSRF | `{title?, model_id?, project_id?}` → conversation (201); 409 `project_archived` |
 | GET | `/api/conversations/{id}` | cookie | Conversation with the selected branch's messages; each has `sibling_ids` and `finish_reason` |
 | POST | `/api/conversations/{id}/messages` | cookie + CSRF | `{content, model_id?, params?, edit_of?, attachment_ids?}` → **SSE stream** (see below). `edit_of` makes the message a new version of an earlier user message (keeping its files unless `attachment_ids` is given) |
 

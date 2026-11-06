@@ -23,9 +23,9 @@ Status: ⬜ not started · 🟨 in progress · ✅ done and tested · ⚠ hardwa
 | Models | GPU monitoring | M11 | ⚠ Intel iGPU: utilisation via Windows perf counters only, no VRAM split | ⬜ |
 | Models | Behaviour profiles | M11 | Full | ⬜ |
 | Models | Multi-model router (auto + manual, RAM-aware) | M11 | Full; one large model resident at a time | ⬜ |
-| Projects | CRUD, instructions, knowledge uploads, scoped chats | M7 | Full | ⬜ |
-| Projects | Semantic retrieval, project search, isolation | M7 | Full | ⬜ |
-| Projects | Export / delete (incl. index + files) | M7 | Full | ⬜ |
+| Projects | CRUD, instructions, knowledge uploads, scoped chats, archive | M7 | Full | ✅ |
+| Projects | Retrieval (BM25 + per-project FAISS), project search, isolation | M7 | Full; vectors once an embedding model is installed | ✅ |
+| Projects | Export (zip) / delete (incl. index + files) | M7 | Full | ✅ |
 | Memory | 5 memory kinds, CRUD, inspect, search, rank | M8 | Full | ⬜ |
 | Memory | Conversation summarisation | M8 | Full (uses a 3B model for speed) | ⬜ |
 | Artifacts | HTML/CSS/JS, SVG, Markdown, Mermaid, React, charts | M9 | Full (React via vendored Babel, offline) | ⬜ |
@@ -34,7 +34,8 @@ Status: ⬜ not started · 🟨 in progress · ✅ done and tested · ⚠ hardwa
 | Agents | Tools: file read/write, doc search, calculator, JSON, knowledge, project search | M10 | Full | ⬜ |
 | Agents | Sandboxed Python | M10 | Docker tier full; fallback tier ⚠ reduced isolation | ⬜ |
 | Intelligence | Document QA over attachments (full text or ranked excerpts) | M6 | Full; keyword ranking until an embedding model is installed | ✅ |
-| Intelligence | Project-wide RAG (FAISS), summarisation | M7–M8 | Full | ⬜ |
+| Intelligence | Project-wide RAG (FAISS) | M7 | Full | ✅ |
+| Intelligence | Conversation summarisation | M8 | Full | ⬜ |
 | Intelligence | JSON mode / structured output | M5 | Full (Ollama `format: json` + validity check) | ✅ |
 | Intelligence | Tool calling | M10 | Native where supported, JSON fallback otherwise | ⬜ |
 | Intelligence | Prompt templates | M5 | Full | ✅ |
@@ -54,4 +55,4 @@ Status: ⬜ not started · 🟨 in progress · ✅ done and tested · ⚠ hardwa
 | UX | Sidebar with 8 sections, collapse, mobile drawer | M2 | Full | ✅ |
 | UX | Keyboard navigation: skip link, `Ctrl+K` palette, `Ctrl+.` sidebar, focus rings | M2 | Full | ✅ |
 | UX | Command palette: conversation search | M5 | Full | ✅ |
-| UX | Command palette: project search | M7 | Full | ⬜ |
+| UX | Command palette: project search | M7 | Full | ✅ |

@@ -41,6 +41,7 @@ async def store_upload(
     stream: object,  # an object with async read(n) -> bytes (Starlette UploadFile)
     max_bytes: int,
     conversation_id: str | None = None,
+    project_id: str | None = None,
 ) -> Attachment:
     """Validate and save an upload. Content is checked from the first bytes before the rest is accepted."""
     display_name = sanitize_filename(filename)
@@ -72,6 +73,7 @@ async def store_upload(
     att = Attachment(
         id=attachment_id,
         conversation_id=conversation_id,
+        project_id=project_id,
         filename=display_name,
         kind=ftype.kind,
         mime_type=ftype.mime_type,
@@ -225,7 +227,11 @@ async def chunks_for(db: AsyncSession, attachment_ids: Sequence[str]) -> dict[st
 
 
 def to_sources(
-    attachments: Sequence[Attachment], chunks: dict[str, list[DocumentChunk]], *, model_sees_images: bool
+    attachments: Sequence[Attachment],
+    chunks: dict[str, list[DocumentChunk]],
+    *,
+    model_sees_images: bool,
+    origin: str | None = None,
 ) -> list[DocumentSource]:
     sources: list[DocumentSource] = []
     for att in attachments:
@@ -239,7 +245,7 @@ def to_sources(
                 "cannot view images. "
                 "Tell the user if their question depends on the image."
             )
-            sources.append(DocumentSource(att.id, att.filename, att.kind, "", note=note))
+            sources.append(DocumentSource(att.id, att.filename, att.kind, "", note=note, origin=origin))
             continue
         passages = [
             Passage(ordinal=c.ordinal, start=c.char_start, text=c.text, embedding=c.embedding)
@@ -253,6 +259,8 @@ def to_sources(
                 att.extracted_text or "",
                 tuple(passages),
                 page_count=att.page_count,
+                origin=origin,
+                whole_text_fallback=origin is None,
             )
         )
     return sources

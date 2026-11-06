@@ -54,7 +54,7 @@ async def _get(db: DbDep, attachment_id: str) -> Attachment:
     return att
 
 
-def _schedule(
+def schedule_processing(
     request: Request, database: DatabaseDep, gateway: GatewayDep, settings: SettingsDep, att_id: str
 ) -> None:
     tasks: set[asyncio.Task[None]] = request.app.state.background_tasks
@@ -104,7 +104,7 @@ async def upload(
         client_ip=client_ip(request),
     )
     await db.commit()
-    _schedule(request, database, gateway, settings, att.id)
+    schedule_processing(request, database, gateway, settings, att.id)
     return AttachmentOut.model_validate(att)
 
 

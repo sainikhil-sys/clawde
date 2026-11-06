@@ -24,7 +24,7 @@ from .config import APP_VERSION, Settings, get_settings
 from .logging_setup import configure_logging
 from .middleware import BodySizeLimitMiddleware, OriginCheckMiddleware, RequestContextMiddleware
 from .routers import attachments as attachments_router
-from .routers import audit, folders, health, models, session, settings, templates
+from .routers import audit, folders, health, models, projects, session, settings, templates
 from .routers import conversations as conversations_router
 from .security import CSRF_HEADER
 
@@ -109,6 +109,7 @@ def create_app(
         folders.router,
         templates.router,
         attachments_router.router,
+        projects.router,
     ):
         app.include_router(router, prefix=api_prefix)
 

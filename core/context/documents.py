@@ -42,6 +42,11 @@ class DocumentSource:
     page_count: int | None = None
     #: Short note shown instead of content (e.g. images the model can't see).
     note: str | None = None
+    #: Where the file comes from, e.g. "project knowledge" (shown to the model).
+    origin: str | None = None
+    #: When excerpting and no passage was pre-selected, use the whole text as one candidate. Project knowledge
+    #: turns this off: only passages its retriever chose are eligible.
+    whole_text_fallback: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +59,8 @@ class DocumentContext:
 
 def _header(doc: DocumentSource) -> str:
     attrs = f'name="{doc.filename}" type="{doc.kind}"'
+    if doc.origin:
+        attrs += f' source="{doc.origin}"'
     if doc.page_count:
         attrs += f' pages="{doc.page_count}"'
     return attrs
@@ -91,7 +98,11 @@ def build_document_context(
         return render(full_blocks + note_blocks, "full", {d.attachment_id: [] for d in texts})
 
     # Too long: choose the most relevant passages across all documents.
-    candidates = [(d, p) for d in texts for p in (d.passages or [Passage(0, 0, d.text)])]
+    candidates = [
+        (d, p)
+        for d in texts
+        for p in (d.passages or ([Passage(0, 0, d.text)] if d.whole_text_fallback else []))
+    ]
     scores = rank(
         query,
         [p.text for _, p in candidates],
@@ -114,6 +125,8 @@ def build_document_context(
     used: dict[str, list[int]] = {}
     for doc in texts:
         picked = sorted(chosen.get(doc.attachment_id, []), key=lambda p: p.ordinal)
+        if not picked and not doc.whole_text_fallback:
+            continue  # nothing relevant in this knowledge file for this question
         if not picked:
             blocks.append(
                 f'<document {_header(doc)} excerpts="0">\n'

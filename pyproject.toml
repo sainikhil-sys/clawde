@@ -20,6 +20,8 @@ dependencies = [
   "openpyxl>=3.1.5",
   "pillow>=13.0.0",
   "python-multipart>=0.0.33",
+  "faiss-cpu>=1.15.1",
+  "numpy>=2.5.4",
 ]
 
 [project.scripts]
@@ -73,5 +75,5 @@ plugins = ["pydantic.mypy"]
 exclude = ["storage/database/migrations/versions/"]
 
 [[tool.mypy.overrides]]
-module = ["alembic.*", "docx", "docx.*", "openpyxl", "openpyxl.*"]
+module = ["alembic.*", "docx", "docx.*", "openpyxl", "openpyxl.*", "faiss", "faiss.*"]
 ignore_missing_imports = true

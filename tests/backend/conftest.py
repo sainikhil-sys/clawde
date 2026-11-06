@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from fastapi import FastAPI
 
 from api.config import Settings
 from api.main import create_app
+from storage.database import migrate
 
 from .fakes import FakeProvider
 
@@ -20,9 +22,20 @@ def make_settings(data_dir: Path, **overrides: object) -> Settings:
     return Settings(data_dir=data_dir, log_to_file=False, log_level="WARNING", **overrides)  # type: ignore[arg-type]
 
 
+@pytest.fixture(scope="session")
+def migrated_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Run all migrations once; each test starts from a copy (startup then finds nothing to migrate)."""
+    db = tmp_path_factory.mktemp("template") / "clawde.db"
+    migrate.upgrade(f"sqlite+aiosqlite:///{db.as_posix()}")
+    return db
+
+
 @pytest.fixture
-def data_dir(tmp_path: Path) -> Path:
-    return tmp_path / "data"
+def data_dir(tmp_path: Path, migrated_template: Path) -> Path:
+    path = tmp_path / "data"
+    path.mkdir()
+    shutil.copyfile(migrated_template, path / "clawde.db")
+    return path
 
 
 @pytest.fixture
