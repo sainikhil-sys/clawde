@@ -34,7 +34,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 # Repository layout follows docs/02-architecture.md; each top-level folder is an importable package.
-packages = ["apps/api", "services", "storage"]
+packages = ["apps/api", "core", "models", "services", "storage"]
 
 [tool.uv]
 default-groups = ["dev"]
@@ -44,6 +44,7 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "-ra"
+markers = ["live: needs a running local Ollama server (skipped automatically if absent)"]
 
 [tool.ruff]
 line-length = 110
@@ -61,7 +62,7 @@ ignore = ["S101"] # assert is fine in tests
 [tool.mypy]
 python_version = "3.12"
 strict = true
-packages = ["api", "services", "storage"]
+packages = ["api", "core", "models", "services", "storage"]
 mypy_path = "apps:."
 plugins = ["pydantic.mypy"]
 exclude = ["storage/database/migrations/versions/"]

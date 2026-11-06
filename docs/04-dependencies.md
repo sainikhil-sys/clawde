@@ -52,7 +52,7 @@ evaluate, safetensors.
 ## External runtimes
 | Runtime | Status | Needed for |
 |---|---|---|
-| Ollama | Installed 0.32.6 | Default inference + embeddings |
+| Ollama | Installed 0.32.6 | Default inference (M4); embeddings from M6 |
 | llama.cpp `llama-server` (prebuilt Windows CPU / Vulkan) | To install in M11 | Direct GGUF serving |
 | Docker Desktop | Installed | Hardened Python sandbox (optional) |
 | Tesseract OCR | Optional | Text from images / scanned PDFs |

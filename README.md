@@ -3,8 +3,9 @@
 A local-first, offline-capable AI assistant platform: chat, projects, memory, artifacts, agents, a model library
 and a research and training studio. It runs on open-weight models and needs no paid APIs.
 
-**Status:** Milestone 3 (local API and database) complete. The web UI talks to a FastAPI backend with a SQLite
-database, browser sessions, CSRF protection and an audit log. Chat with local models arrives in Milestone 4.
+**Status:** Milestone 4 (local model inference and streaming) complete. You can chat with any chat model
+installed in Ollama: replies stream token by token, Stop works, and conversations persist. Full chat features
+(Markdown, editing, regenerating, history management) arrive in Milestone 5.
 
 ## Requirements
 
@@ -13,7 +14,7 @@ database, browser sessions, CSRF protection and an audit log. Chat with local mo
 | Node.js | 22.x | |
 | pnpm | 11.x | `corepack enable` or install from pnpm.io |
 | uv | 0.11+ | Installs Python 3.12 and the API's dependencies |
-| Ollama | 0.32+ | Needed from Milestone 4 |
+| Ollama | 0.32+ | Runs the models. Install at least one chat model, e.g. `ollama pull llama3.2` |
 
 ## First-time setup
 
@@ -37,7 +38,7 @@ pnpm dev:api
 pnpm dev:web
 ```
 
-Open http://127.0.0.1:3000. Both servers bind to loopback only. The API stores its data in
+Make sure the Ollama app is running, then open http://127.0.0.1:3000. Both servers bind to loopback only. The API stores its data in
 `%LOCALAPPDATA%\Clawde` (database and logs). Change this with `CLAWDE_DATA_DIR`; see [docs/api.md](docs/api.md).
 
 ## Checks
@@ -58,6 +59,9 @@ pnpm test:api
 pnpm test:web
 ```
 
+The API test suite includes two live tests against the real Ollama server (using the smallest installed chat
+model). They are skipped automatically when Ollama isn't running; run only them with `uv run pytest -m live`.
+
 ```bash
 pnpm build:web
 ```
@@ -66,12 +70,18 @@ pnpm build:web
 
 ```
 apps/desktop/        Next.js 16 web UI (App Router, Tailwind v4, shadcn/ui on Radix)
-apps/api/            FastAPI app: config, middleware, security (sessions/CSRF), routers, CLI
-services/            audit/, settings/: business logic used by the API
+apps/api/            FastAPI app: config, middleware, security (sessions/CSRF), routers, SSE streaming, CLI
+core/inference/      Provider-independent ModelProvider protocol, gateway, types
+core/orchestrator/   One chat turn: stream, forward, persist (incl. stop/cancel)
+core/context/        Fitting history into the model's context window
+models/adapters/     Ollama adapter (llama.cpp and Transformers adapters come in M11)
+models/registry/     Model registry synced from providers
+services/            audit/, settings/, conversation/: business logic used by the API
 storage/database/    SQLAlchemy models, async engine, Alembic migrations
 storage/local_files/ Path-traversal-safe file access (safe_join)
 tests/backend/       API, database and migration tests
 tests/security/      Path safety tests
+tests/integration/   Live tests against a running Ollama
 docs/                Planning, architecture, API and schema docs
 ```
 

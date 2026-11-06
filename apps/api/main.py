@@ -3,27 +3,46 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI
+from fastapi.telemetry import TelemetryConfig
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from core.inference.gateway import InferenceGateway
+from core.inference.provider import ModelProvider
+from models.adapters.ollama import OllamaProvider
+from services.conversation import service as conversations
 from storage.database import migrate
 from storage.database.engine import Database
 
 from .config import APP_VERSION, Settings, get_settings
 from .logging_setup import configure_logging
 from .middleware import BodySizeLimitMiddleware, OriginCheckMiddleware, RequestContextMiddleware
-from .routers import audit, health, session, settings
+from .routers import audit, health, models, session, settings
+from .routers import conversations as conversations_router
 from .security import CSRF_HEADER
 
 log = structlog.get_logger("clawde.api")
 
+#: FastAPI ships OpenTelemetry instrumentation. Nothing is exported without configuration, but we switch
+#: every part off explicitly so no environment variable can turn it on behind the user's back.
+_TELEMETRY_OFF: TelemetryConfig = {
+    "tracing": False,
+    "metrics": False,
+    "logs": False,
+    "operation_spans": False,
+    "auto_configure": False,
+}
 
-def create_app(app_settings: Settings | None = None) -> FastAPI:
+
+def create_app(
+    app_settings: Settings | None = None, providers: Sequence[ModelProvider] | None = None
+) -> FastAPI:
+    """`providers` lets tests inject in-process providers; by default Ollama is used."""
     cfg = app_settings or get_settings()
 
     @asynccontextmanager
@@ -35,12 +54,30 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
             # Alembic runs its own event loop; keep it off ours.
             await asyncio.to_thread(migrate.upgrade, url)
         database = Database(url)
+        recovered = await conversations.recover_interrupted(database.sessionmaker)
+        if recovered:
+            log.warning("api.recovered_interrupted_replies", count=recovered)
+        gateway = InferenceGateway(
+            providers
+            if providers is not None
+            else [OllamaProvider(cfg.ollama_url, keep_alive=cfg.ollama_keep_alive)]
+        )
         app.state.settings = cfg
         app.state.database = database
-        log.info("api.started", version=APP_VERSION, data_dir=str(cfg.data_dir), host=cfg.host, port=cfg.port)
+        app.state.gateway = gateway
+        app.state.active_generations = set()
+        log.info(
+            "api.started",
+            version=APP_VERSION,
+            data_dir=str(cfg.data_dir),
+            host=cfg.host,
+            port=cfg.port,
+            providers=list(gateway.providers),
+        )
         try:
             yield
         finally:
+            await gateway.aclose()
             await database.dispose()
             log.info("api.stopped")
 
@@ -51,9 +88,17 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
         redoc_url=None,
+        telemetry=_TELEMETRY_OFF,
     )
     api_prefix = "/api"
-    for router in (health.router, session.router, settings.router, audit.router):
+    for router in (
+        health.router,
+        session.router,
+        settings.router,
+        audit.router,
+        models.router,
+        conversations_router.router,
+    ):
         app.include_router(router, prefix=api_prefix)
 
     # Starlette wraps in reverse order: the last added middleware runs first.

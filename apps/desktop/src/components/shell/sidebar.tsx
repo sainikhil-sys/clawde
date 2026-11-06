@@ -13,6 +13,8 @@ import { isActivePath, NAV_ITEMS, type NavItem } from "@/lib/navigation";
 import { setThemePreference, toggleSidebar, type ThemePreference } from "@/lib/preferences";
 import { cn } from "@/lib/utils";
 
+import { RecentConversations } from "./recent-conversations";
+
 type SidebarProps = {
   /** Current pathname, or null while it is not yet known (prerender fallback). */
   pathname: string | null;
@@ -88,11 +90,14 @@ export function Sidebar({ pathname, onSearch, onNavigate, variant = "desktop" }:
         </ul>
       </nav>
 
-      <section aria-labelledby="recents-heading" className={cn("mt-6 min-h-0 flex-1 px-4", hideWhenCollapsed)}>
+      <section
+        aria-labelledby="recents-heading"
+        className={cn("mt-6 min-h-0 flex-1 overflow-y-auto px-4 pb-2", hideWhenCollapsed)}
+      >
         <h2 id="recents-heading" className="text-xs font-medium text-muted-foreground">
           Recents
         </h2>
-        <p className="mt-2 text-sm text-muted-foreground/80">No conversations yet.</p>
+        <RecentConversations pathname={pathname} onNavigate={onNavigate} />
       </section>
 
       <div className={cn("mt-auto shrink-0 border-t border-sidebar-border p-2", collapsed && "flex justify-center")}>

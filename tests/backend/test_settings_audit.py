@@ -7,6 +7,7 @@ import httpx
 from api.main import create_app
 
 from .conftest import BASE_URL, csrf_headers, make_settings, start_session
+from .fakes import FakeProvider
 
 
 async def test_settings_defaults_and_validation(client: httpx.AsyncClient) -> None:
@@ -27,7 +28,7 @@ async def test_settings_and_audit_persist_across_restart(data_dir: Path) -> None
     """Acceptance: data survives an API restart (same data folder, new process state)."""
     settings = make_settings(data_dir)
 
-    first = create_app(settings)
+    first = create_app(settings, providers=[FakeProvider()])
     async with (
         first.router.lifespan_context(first),
         httpx.AsyncClient(transport=httpx.ASGITransport(app=first), base_url=BASE_URL) as c,
@@ -38,7 +39,7 @@ async def test_settings_and_audit_persist_across_restart(data_dir: Path) -> None
         )
         assert resp.status_code == 200
 
-    second = create_app(settings)
+    second = create_app(settings, providers=[FakeProvider()])
     async with (
         second.router.lifespan_context(second),
         httpx.AsyncClient(transport=httpx.ASGITransport(app=second), base_url=BASE_URL) as c,

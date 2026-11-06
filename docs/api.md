@@ -29,10 +29,32 @@ Base URL: `http://127.0.0.1:8000`. With the API running, live OpenAPI docs are a
 | GET | `/api/settings` | cookie | `{network_access_enabled, default_model}` |
 | PATCH | `/api/settings` | cookie + CSRF | Partial update; unknown keys → 422; changes are audited |
 | GET | `/api/audit?limit=50&before_id=` | cookie | Newest-first audit events, `{events, next_before_id}` |
+| GET | `/api/models?include_unavailable=false` | cookie | Syncs the registry with all providers, returns `{models, providers}`. Each model has `chat: bool` |
+| GET | `/api/conversations?limit=30` | cookie | Recent non-archived conversations with `message_count` |
+| POST | `/api/conversations` | cookie + CSRF | `{title?, model_id?}` → conversation (201) |
+| GET | `/api/conversations/{id}` | cookie | Conversation with its messages in order |
+| POST | `/api/conversations/{id}/messages` | cookie + CSRF | `{content, model_id?, params?}` → **SSE stream** (see below) |
+
+### Streaming a reply
+The `params` field takes `{temperature 0–2, top_p 0–1, max_tokens 1–32768, context_length 512–131072, seed?}`.
+The context length is capped at the model's maximum. The model is chosen in this order: the request, then the
+conversation's last model, then the `default_model` setting. Otherwise the request fails with 400 `no_model_selected`.
+
+Events (`text/event-stream`, each `data:` is JSON):
+| Event | Data |
+|---|---|
+| `start` | `{conversation, user_message, assistant_message, history_messages_dropped}` |
+| `token` | `{text}`, repeated |
+| `done` | `{message, finish_reason, total_duration_ms, load_duration_ms}` |
+| `error` | `{code, message, message_id}`. Partial text is saved on the message |
+
+Closing the connection stops generation. The partial reply is saved with status `cancelled`.
 
 ### Error codes
 `no_session`, `session_expired` (401) · `csrf_failed`, `origin_not_allowed` (403) · `body_too_large` (413) ·
-`bad_content_length` (400).
+`bad_content_length` (400) · `conversation_not_found` (404) · `no_model_selected`, `model_unavailable`,
+`model_not_chat` (400) · `generation_in_progress` (409) · stream errors: `provider_unavailable`, `model_not_found`,
+`provider_error`.
 
 ## CLI
 
@@ -62,5 +84,7 @@ uv run clawde-api info
 | `CLAWDE_ALLOWED_ORIGINS` | `["http://127.0.0.1:3000","http://localhost:3000"]` | JSON list |
 | `CLAWDE_SESSION_TTL_HOURS` | `720` | Session lifetime |
 | `CLAWDE_MAX_REQUEST_BYTES` | `1048576` | JSON body limit |
+| `CLAWDE_OLLAMA_URL` | `http://127.0.0.1:11434` | Local Ollama server |
+| `CLAWDE_OLLAMA_KEEP_ALIVE` | `10m` | How long Ollama keeps a model in RAM after use |
 | `CLAWDE_LOG_LEVEL` | `INFO` | |
 | `CLAWDE_AUTO_MIGRATE` | `true` | Apply migrations on startup |

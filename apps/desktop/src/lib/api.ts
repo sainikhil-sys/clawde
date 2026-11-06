@@ -3,6 +3,8 @@
  * the first authenticated call creates (or recovers) a session, and mutations send X-CSRF-Token.
  */
 
+import { parseSse } from "./sse";
+
 export const API_PORT = 8000;
 
 /** Same hostname as the page so the SameSite=Strict session cookie is sent (127.0.0.1 vs localhost matter). */
@@ -93,7 +95,8 @@ export function resetSession(): void {
 
 type RequestOptions = { method?: string; body?: unknown; signal?: AbortSignal; auth?: boolean };
 
-export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+/** Authenticated fetch with session/CSRF handling and one retry on an expired session. Throws on non-2xx. */
+export async function apiFetch(path: string, opts: RequestOptions = {}): Promise<Response> {
   const method = opts.method ?? "GET";
   const auth = opts.auth ?? true;
 
@@ -120,6 +123,11 @@ export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Pr
     }
   }
   if (!resp.ok) throw await toApiError(resp);
+  return resp;
+}
+
+export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  const resp = await apiFetch(path, opts);
   if (resp.status === 204) return undefined as T;
   return (await resp.json()) as T;
 }
@@ -144,6 +152,78 @@ export type AuditEvent = {
 
 export type AuditPage = { events: AuditEvent[]; next_before_id: number | null };
 
+export type ModelInfo = {
+  id: string;
+  provider: string;
+  provider_ref: string;
+  display_name: string;
+  family: string | null;
+  parameter_size: string | null;
+  quantization: string | null;
+  format: string | null;
+  size_bytes: number | null;
+  context_length: number | null;
+  capabilities: string[];
+  available: boolean;
+  chat: boolean;
+  last_synced_at: string;
+};
+
+export type ProviderStatus = {
+  name: string;
+  status: "ok" | "unavailable" | "error";
+  message: string | null;
+  model_count: number;
+};
+export type ModelList = { models: ModelInfo[]; providers: ProviderStatus[] };
+
+export type AppSettings = { network_access_enabled: boolean; default_model: string | null };
+
+export type MessageStatus = "streaming" | "complete" | "error" | "cancelled";
+export type ChatMessage = {
+  id: string;
+  conversation_id: string;
+  parent_id: string | null;
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  status: MessageStatus;
+  model_id: string | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  error: string | null;
+  created_at: string;
+};
+
+export type Conversation = {
+  id: string;
+  title: string;
+  project_id: string | null;
+  folder_id: string | null;
+  pinned: boolean;
+  archived: boolean;
+  model_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+export type ConversationSummary = Conversation & { message_count: number };
+export type ConversationDetail = Conversation & { messages: ChatMessage[] };
+
+export type GenerationParams = { temperature: number; top_p: number; max_tokens: number; context_length: number };
+
+export type TurnEvent =
+  | {
+      event: "start";
+      data: {
+        conversation: Conversation;
+        user_message: ChatMessage;
+        assistant_message: ChatMessage;
+        history_messages_dropped: number;
+      };
+    }
+  | { event: "token"; data: { text: string } }
+  | { event: "done"; data: { message: ChatMessage; finish_reason: string; total_duration_ms: number | null } }
+  | { event: "error"; data: { code: string; message: string; message_id: string } };
+
 export const api = {
   health: (signal?: AbortSignal) => apiRequest<Health>("/api/health", { auth: false, signal }),
   audit: (params: { limit?: number; beforeId?: number } = {}, signal?: AbortSignal) => {
@@ -153,4 +233,33 @@ export const api = {
     const qs = q.toString();
     return apiRequest<AuditPage>(`/api/audit${qs ? `?${qs}` : ""}`, { signal });
   },
+  models: (signal?: AbortSignal) => apiRequest<ModelList>("/api/models", { signal }),
+  settings: (signal?: AbortSignal) => apiRequest<AppSettings>("/api/settings", { signal }),
+  updateSettings: (patch: Partial<AppSettings>) =>
+    apiRequest<AppSettings>("/api/settings", { method: "PATCH", body: patch }),
+  conversations: (signal?: AbortSignal) => apiRequest<ConversationSummary[]>("/api/conversations", { signal }),
+  conversation: (id: string, signal?: AbortSignal) =>
+    apiRequest<ConversationDetail>(`/api/conversations/${encodeURIComponent(id)}`, { signal }),
+  createConversation: (body: { title?: string; model_id?: string } = {}) =>
+    apiRequest<Conversation>("/api/conversations", { method: "POST", body }),
 };
+
+/**
+ * Sends a message and yields the reply as it streams. Aborting `signal` stops generation on the server
+ * (the partial reply is kept and marked "cancelled").
+ */
+export async function* streamMessage(
+  conversationId: string,
+  body: { content: string; model_id: string; params: GenerationParams },
+  signal: AbortSignal,
+): AsyncGenerator<TurnEvent> {
+  const resp = await apiFetch(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
+    method: "POST",
+    body,
+    signal,
+  });
+  if (!resp.body) throw new ApiError(500, "no_body", "The server sent an empty response.");
+  for await (const ev of parseSse(resp.body)) {
+    yield { event: ev.event, data: JSON.parse(ev.data) } as TurnEvent;
+  }
+}

@@ -10,6 +10,8 @@ from fastapi import FastAPI
 from api.config import Settings
 from api.main import create_app
 
+from .fakes import FakeProvider
+
 ORIGIN = "http://127.0.0.1:3000"
 BASE_URL = "http://127.0.0.1:8000"
 
@@ -29,8 +31,13 @@ def settings(data_dir: Path) -> Settings:
 
 
 @pytest.fixture
-async def app(settings: Settings) -> AsyncIterator[FastAPI]:
-    application = create_app(settings)
+def provider() -> FakeProvider:
+    return FakeProvider()
+
+
+@pytest.fixture
+async def app(settings: Settings, provider: FakeProvider) -> AsyncIterator[FastAPI]:
+    application = create_app(settings, providers=[provider])
     async with application.router.lifespan_context(application):
         yield application
 

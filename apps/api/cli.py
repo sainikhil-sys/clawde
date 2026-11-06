@@ -39,7 +39,7 @@ def main(argv: list[str] | None = None) -> None:
             host=settings.host,
             port=settings.port,
             reload=args.reload,
-            reload_dirs=[str(REPO_ROOT / d) for d in ("apps/api", "services", "storage")]
+            reload_dirs=[str(REPO_ROOT / d) for d in ("apps/api", "core", "models", "services", "storage")]
             if args.reload
             else None,
             log_config=None,  # structlog configures logging in the app lifespan

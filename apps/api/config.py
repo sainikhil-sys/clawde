@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     #: Upper bound for ordinary JSON request bodies. File uploads get their own limits (Milestone 6).
     max_request_bytes: int = Field(default=1_048_576, ge=1024)
 
+    #: Local Ollama server. Chat traffic goes only here; it is not an internet request.
+    ollama_url: str = "http://127.0.0.1:11434"
+    #: How long Ollama keeps a model loaded after the last request (RAM vs. reload latency).
+    ollama_keep_alive: str = "10m"
+
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     log_to_file: bool = True
     #: Apply pending database migrations at startup.

@@ -31,6 +31,7 @@ EXPECTED_TABLES = {
     "projects",
     "conversations",
     "messages",
+    "models",
 }
 
 
@@ -60,7 +61,7 @@ def test_migrations_match_models(tmp_path: Path) -> None:
 
 
 def test_head_revision_is_single() -> None:
-    assert migrate.head_revision() == "0001_initial"
+    assert migrate.head_revision() == "0002_model_registry"
 
 
 async def test_foreign_keys_enforced_and_cascade(tmp_path: Path) -> None:

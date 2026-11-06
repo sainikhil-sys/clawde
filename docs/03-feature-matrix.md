@@ -5,17 +5,20 @@ Status: ⬜ not started · 🟨 in progress · ✅ done and tested · ⚠ hardwa
 | Area | Feature | Milestone | Feasibility on this machine | Status |
 |---|---|---|---|---|
 | Chat | New / history / search / rename / delete / archive / pin / folders | M5 | Full | ⬜ |
-| Chat | Streaming, stop, continue, retry | M4–M5 | Full | ⬜ |
+| Chat | Streaming and stop (partial reply kept) | M4 | Full | ✅ |
+| Chat | Continue and retry | M5 | Full | ⬜ |
 | Chat | Markdown + syntax highlighting, copy, timestamps | M5 | Full | ⬜ |
 | Chat | Edit message / regenerate (branching) | M5 | Full | ⬜ |
 | Chat | Export (Markdown, JSON) | M5 | Full | ⬜ |
 | Files | PDF, TXT, MD, DOCX, CSV, XLSX, JSON, code | M6 | Full | ⬜ |
 | Files | Images: preview + metadata; understanding needs a vision model | M6 | ⚠ vision models are slow on CPU; OCR optional (Tesseract) | ⬜ |
-| Models | Ollama adapter (list, pull, delete, chat, embed) | M4, M11 | Full | ⬜ |
+| Models | Ollama adapter: list, metadata, chat streaming | M4 | Full | ✅ |
+| Models | Ollama adapter: pull, delete, embeddings | M6, M11 | Full | ⬜ |
 | Models | llama.cpp adapter (llama-server) | M11 | Full (CPU); Vulkan iGPU to test | ⬜ |
 | Models | Hugging Face / Transformers adapter | M11 | ⚠ small models only (≤1.5B) for in-process inference | ⬜ |
 | Models | GGUF import, metadata, licence, hardware fit | M11 | Full | ⬜ |
-| Models | Sampling params, context length, max tokens | M4 | Full | ⬜ |
+| Models | Sampling params, context length, max tokens | M4 | Full | ✅ |
+| Models | Provider-independent registry (synced, not hardcoded) and model switching | M4 | Full | ✅ |
 | Models | RAM monitoring | M11 | Full (psutil) | ⬜ |
 | Models | GPU monitoring | M11 | ⚠ Intel iGPU: utilisation via Windows perf counters only, no VRAM split | ⬜ |
 | Models | Behaviour profiles | M11 | Full | ⬜ |

@@ -67,5 +67,23 @@ ever drift apart.
 | error | text null | |
 | created_at | datetime | |
 
+## Revision `0002_model_registry` (Milestone 4)
+
+### models
+| Column | Type | Notes |
+|---|---|---|
+| id | varchar(300) PK | `<provider>:<ref>`, e.g. `ollama:llama3.2:latest` |
+| provider, provider_ref | varchar | `provider` indexed |
+| display_name, family, parameter_size, quantization, format | varchar | As reported by the provider |
+| size_bytes | bigint null | |
+| context_length | integer null | Model's maximum; requests are capped to it |
+| digest | varchar(128) null | |
+| capabilities | JSON list | e.g. `["completion", "tools"]`; chat requires `completion` |
+| available | boolean | False when the provider stops listing the model or is unreachable |
+| first_seen_at, last_synced_at | datetime | |
+
+Message statuses used from M4: `streaming` → `complete` | `error` | `cancelled`. Replies still `streaming` at
+startup (after a crash) become `cancelled`.
+
 Planned tables (attachments, documents, chunks, memories, artifacts, models, agent runs, evaluations, research
 runs) are listed in `docs/02-architecture.md` §5 and arrive with their milestones.

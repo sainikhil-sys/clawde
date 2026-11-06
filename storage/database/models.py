@@ -1,4 +1,4 @@
-"""ORM models. Milestone 3 schema: sessions, audit log, settings, and the conversation core used from M4/M5.
+"""ORM models. M3: sessions, audit log, settings, conversation core. M4: model registry.
 
 Later milestones add their tables through new Alembic revisions (see docs/02-architecture.md §5).
 """
@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import JSON, BigInteger, Boolean, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, new_id, utcnow
@@ -108,3 +108,29 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
+
+
+class ModelRecord(Base):
+    """Registry entry for a model available through any provider. Synced from providers, never hardcoded.
+
+    Milestone 11 extends this with licence, evaluated behaviour and behaviour profiles.
+    """
+
+    __tablename__ = "models"
+
+    id: Mapped[str] = mapped_column(String(300), primary_key=True)  # "<provider>:<ref>"
+    provider: Mapped[str] = mapped_column(String(50), index=True)
+    provider_ref: Mapped[str] = mapped_column(String(250))
+    display_name: Mapped[str] = mapped_column(String(250))
+    family: Mapped[str | None] = mapped_column(String(100))
+    parameter_size: Mapped[str | None] = mapped_column(String(50))
+    quantization: Mapped[str | None] = mapped_column(String(50))
+    format: Mapped[str | None] = mapped_column(String(50))
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    context_length: Mapped[int | None] = mapped_column(Integer)
+    digest: Mapped[str | None] = mapped_column(String(128))
+    capabilities: Mapped[list[str]] = mapped_column(JSON, default=list)
+    #: False when the provider no longer reports the model (removed, or provider offline at last sync).
+    available: Mapped[bool] = mapped_column(Boolean, default=True)
+    first_seen_at: Mapped[datetime] = mapped_column(default=utcnow)
+    last_synced_at: Mapped[datetime] = mapped_column(default=utcnow)

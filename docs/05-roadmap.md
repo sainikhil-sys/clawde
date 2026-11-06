@@ -11,7 +11,7 @@ chat is model-independent from day one. M11 then builds the full Model Library U
 | 1 | Audit & hardware | `docs/01–05` | ✅ Done: repo empty, hardware measured, plan written |
 | 2 | Frontend foundation | Next.js app, design tokens, light/dark, sidebar (8 sections), routing, responsive layout, keyboard nav, empty states | ✅ Done: see progress log |
 | 3 | Backend & database | FastAPI skeleton, settings, structlog, SQLAlchemy models, Alembic, session/CSRF/Host checks, audit log, `/health` | ✅ Done: see progress log |
-| 4 | Inference & streaming | `ModelProvider`, Ollama adapter, minimal registry sync, SSE chat endpoint, stop via abort | 🧪 integration test against real Ollama (`llama3.2`), tokens stream, cancel works |
+| 4 | Inference & streaming | `ModelProvider`, Ollama adapter, minimal registry sync, SSE chat endpoint, stop via abort | ✅ Done: see progress log |
 | 5 | Complete chat | Conversations CRUD, search (FTS5), folders, pin/archive, edit/regenerate branches, continue, retry, markdown/code, export, JSON mode, prompt templates | 🧪 persists across API restart; E2E Playwright happy path |
 | 6 | Files & documents | Upload validation (size/type/magic), extraction for all listed types, previews, status + errors, chunking, embeddings, chat-with-file | 🧪 fixture files per type; malicious files rejected |
 | 7 | Projects | Project CRUD, instructions, knowledge, scoped chats, per-project FAISS, search, export/delete | 🧪 isolation test: project A retrieval never returns B's chunks |
@@ -81,6 +81,46 @@ Notes:
 - The first page load logs one expected 401 in the browser console (checking for a session before creating one).
 - Other local processes running as the same OS user are inside the trust boundary (documented in
   `apps/api/security.py`).
+
+### Milestone 4: local model inference and streaming (2026-11-06)
+Built:
+- `core/inference`: `ModelProvider` protocol, `InferenceGateway` (model ids are `<provider>:<ref>`), typed
+  `GenerationParams` (temperature, top-p, max tokens, context window, seed).
+- `models/adapters/ollama.py`: model listing with metadata (family, size, quantization, context length,
+  capabilities) from `/api/tags`, NDJSON chat streaming, error mapping, and abort on close. Local only, never
+  through a system proxy.
+- `models/registry`: `models` table (migration `0002`), synced on every model list. Removed models are kept but
+  marked unavailable; there are no hardcoded model names.
+- `core/orchestrator/chat_turn.py`: streams a turn as SSE events (`start`, `token`, `done`, `error`) and
+  persists the outcome: complete, error (partial text kept) or cancelled (partial text kept).
+- `apps/api/streaming.py`: an SSE response that always closes its generator, so a browser disconnect
+  (Stop) reliably saves the partial reply and aborts the Ollama request. Replies left "streaming" by a crash
+  are marked cancelled at startup. One generation per conversation at a time (409 otherwise).
+- `core/context/budget.py`: keeps the newest messages that fit the context window and reports how many were left out.
+- Endpoints: `GET /api/models`, `GET|POST /api/conversations`, `GET /api/conversations/{id}`,
+  `POST /api/conversations/{id}/messages` (SSE).
+- FastAPI's built-in OpenTelemetry instrumentation is switched off explicitly (it exports nothing by
+  default, but environment variables could otherwise enable it).
+- Web UI: chat view with composer (Enter sends, Shift+Enter adds a newline), streaming text, a Stop button, a
+  model selector (defaults to your last choice, otherwise the smallest installed model), and generation
+  controls (temperature, top-p, max tokens, context window). Recents list in the sidebar. Clear states for
+  "API not running", "Ollama not running" and "no models installed". The reply keeps streaming if you navigate away.
+
+Verified:
+- 91 backend tests, including 2 live tests against the real Ollama: streamed tokens with usage counts, and
+  stopping mid-reply returns in under 2 s with Ollama immediately serving the next request.
+- 42 frontend tests, including a hydration regression test (confirmed to fail without the fix).
+- Manual run with `llama3.2` (3.2B) in the browser: tokens stream visibly (about 110 characters/s), Stop saves the partial
+  reply as "Stopped" (the server log matches: 354 characters, status `cancelled`), and the conversation and title survive a reload.
+  First token: about 10 s on a cold model load, about 2 s once loaded.
+
+Fixed during verification:
+- Hydration mismatch on `/chat/[id]`: with partial prerendering, the sidebar fetched API health before the chat
+  segment hydrated. `useApiHealth` now reports "pending" until hydration completes.
+- Never run `next build` while `next dev` is running: both use `apps/desktop/.next`.
+
+Deferred to Milestone 5: Markdown and code highlighting, edit/regenerate/continue, retry, rename/delete/pin/archive,
+folders, conversation search and export, model-generated titles.
 
 ## Known limitations (current)
 - CPU-only inference: 7B models run at about 5 tok/s, so small models are the default for interactivity.
