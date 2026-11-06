@@ -155,3 +155,167 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---- Rendered Markdown (assistant replies) ---- */
+@layer components {
+  .prose-clawde {
+    font-size: 0.95rem;
+    line-height: 1.7;
+    overflow-wrap: anywhere;
+  }
+  .prose-clawde > :first-child {
+    margin-top: 0;
+  }
+  .prose-clawde > :last-child {
+    margin-bottom: 0;
+  }
+  .prose-clawde p,
+  .prose-clawde ul,
+  .prose-clawde ol,
+  .prose-clawde blockquote {
+    margin: 0.75em 0;
+  }
+  .prose-clawde ul {
+    list-style: disc;
+    padding-left: 1.4em;
+  }
+  .prose-clawde ol {
+    list-style: decimal;
+    padding-left: 1.6em;
+  }
+  .prose-clawde li {
+    margin: 0.25em 0;
+  }
+  .prose-clawde li > p {
+    margin: 0.25em 0;
+  }
+  .prose-clawde h1,
+  .prose-clawde h2,
+  .prose-clawde h3,
+  .prose-clawde h4 {
+    font-weight: 600;
+    line-height: 1.3;
+    margin: 1.4em 0 0.5em;
+  }
+  .prose-clawde h1 {
+    font-size: 1.35em;
+  }
+  .prose-clawde h2 {
+    font-size: 1.2em;
+  }
+  .prose-clawde h3 {
+    font-size: 1.05em;
+  }
+  .prose-clawde blockquote {
+    border-left: 3px solid var(--border);
+    padding-left: 0.9em;
+    color: var(--muted-foreground);
+  }
+  .prose-clawde hr {
+    margin: 1.5em 0;
+    border-color: var(--border);
+  }
+  .prose-clawde input[type="checkbox"] {
+    margin-right: 0.4em;
+  }
+}
+
+/* Syntax colours (highlight.js classes) tied to the theme tokens, so code follows light/dark. */
+.hljs-comment,
+.hljs-quote {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-built_in,
+.hljs-doctag {
+  color: oklch(0.5 0.15 300);
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-attribute {
+  color: oklch(0.5 0.12 150);
+}
+.hljs-number,
+.hljs-literal,
+.hljs-symbol,
+.hljs-bullet {
+  color: oklch(0.55 0.13 50);
+}
+.hljs-title,
+.hljs-section,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: oklch(0.48 0.1 230);
+}
+.hljs-type,
+.hljs-class,
+.hljs-variable,
+.hljs-template-variable {
+  color: oklch(0.5 0.1 195);
+}
+.hljs-deletion,
+.hljs-meta {
+  color: oklch(0.55 0.15 25);
+}
+.dark .hljs-keyword,
+.dark .hljs-selector-tag,
+.dark .hljs-built_in,
+.dark .hljs-doctag {
+  color: oklch(0.78 0.12 300);
+}
+.dark .hljs-string,
+.dark .hljs-regexp,
+.dark .hljs-addition,
+.dark .hljs-attribute {
+  color: oklch(0.8 0.12 150);
+}
+.dark .hljs-number,
+.dark .hljs-literal,
+.dark .hljs-symbol,
+.dark .hljs-bullet {
+  color: oklch(0.8 0.12 60);
+}
+.dark .hljs-title,
+.dark .hljs-section,
+.dark .hljs-name,
+.dark .hljs-selector-id,
+.dark .hljs-selector-class {
+  color: oklch(0.78 0.1 230);
+}
+.dark .hljs-type,
+.dark .hljs-class,
+.dark .hljs-variable,
+.dark .hljs-template-variable {
+  color: oklch(0.8 0.09 195);
+}
+.dark .hljs-deletion,
+.dark .hljs-meta {
+  color: oklch(0.75 0.14 25);
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 600;
+}
+
+/* Blinking caret after the last streamed character. */
+.streaming-caret .prose-clawde > :last-child::after {
+  content: "";
+  display: inline-block;
+  width: 0.45em;
+  height: 1em;
+  margin-left: 0.15em;
+  vertical-align: -0.12em;
+  background: color-mix(in oklch, var(--primary) 70%, transparent);
+  animation: clawde-caret 1s steps(2, start) infinite;
+}
+@keyframes clawde-caret {
+  to {
+    visibility: hidden;
+  }
+}

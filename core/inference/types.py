@@ -28,6 +28,8 @@ class GenerationParams(BaseModel):
     #: Context window to allocate. Larger values use more RAM (KV cache).
     context_length: int = Field(default=4096, ge=512, le=131_072)
     seed: int | None = Field(default=None, ge=0)
+    #: "json" constrains output to valid JSON (structured output / JSON mode) on backends that support it.
+    response_format: Literal["text", "json"] = "text"
 
 
 @dataclass(frozen=True, slots=True)

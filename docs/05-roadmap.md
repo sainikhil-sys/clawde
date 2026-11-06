@@ -12,7 +12,7 @@ chat is model-independent from day one. M11 then builds the full Model Library U
 | 2 | Frontend foundation | Next.js app, design tokens, light/dark, sidebar (8 sections), routing, responsive layout, keyboard nav, empty states | ✅ Done: see progress log |
 | 3 | Backend & database | FastAPI skeleton, settings, structlog, SQLAlchemy models, Alembic, session/CSRF/Host checks, audit log, `/health` | ✅ Done: see progress log |
 | 4 | Inference & streaming | `ModelProvider`, Ollama adapter, minimal registry sync, SSE chat endpoint, stop via abort | ✅ Done: see progress log |
-| 5 | Complete chat | Conversations CRUD, search (FTS5), folders, pin/archive, edit/regenerate branches, continue, retry, markdown/code, export, JSON mode, prompt templates | 🧪 persists across API restart; E2E Playwright happy path |
+| 5 | Complete chat | Conversations CRUD, search, folders, pin/archive, edit/regenerate branches, continue, retry, markdown/code, export, JSON mode, prompt templates | ✅ Done: see progress log |
 | 6 | Files & documents | Upload validation (size/type/magic), extraction for all listed types, previews, status + errors, chunking, embeddings, chat-with-file | 🧪 fixture files per type; malicious files rejected |
 | 7 | Projects | Project CRUD, instructions, knowledge, scoped chats, per-project FAISS, search, export/delete | 🧪 isolation test: project A retrieval never returns B's chunks |
 | 8 | Memory & retrieval | 5 memory kinds, CRUD/inspect UI, ranking, summarisation, context budgeting | 🧪 memory survives restart; deleted memory never retrieved |
@@ -121,6 +121,45 @@ Fixed during verification:
 
 Deferred to Milestone 5: Markdown and code highlighting, edit/regenerate/continue, retry, rename/delete/pin/archive,
 folders, conversation search and export, model-generated titles.
+
+### Milestone 5: complete chat (2026-11-06)
+Built:
+- Message tree: editing a message or regenerating a reply adds a new version beside the old one; nothing is
+  overwritten. `conversations.current_leaf_id` (migration `0003`) marks the branch shown, and each message
+  reports `sibling_ids` so the UI can show "‹ 2 / 3 ›" switchers. Retry is a regenerate of a failed reply.
+- Continue: a stopped, failed-with-text or length-limited reply is resumed by sending it back as the last
+  assistant message (Ollama treats it as a prefix). The new text is appended to the same message. Only the last
+  reply in a branch can be continued.
+- Conversations: rename, pin (pinned first), archive, move to folders, delete (audited, with confirmation),
+  search over titles and message text (portable LIKE with escaped wildcards), export to Markdown (selected
+  branch) or JSON (full tree, `clawde.conversation.v1`).
+- Folders and prompt templates (table `prompt_templates`) with full CRUD. Deleting a folder keeps its conversations.
+- JSON mode: `params.response_format = "json"` maps to Ollama's `format: "json"`. The `done` event reports `json_valid`.
+- Web UI: Markdown (GFM tables, task lists) with highlight.js code blocks, language label and copy. Raw HTML in
+  model output is not rendered, and Markdown images are not loaded (no tracking pixels). Message actions
+  (copy, edit, regenerate, retry, continue, version switcher), timestamps, a chat header with the conversation
+  menu, pinned and recent conversations with menus in the sidebar, an "All chats" page (search, All / Pinned /
+  Archived, folder filters and management), conversation search in `Ctrl+K`, a templates menu and a JSON mode
+  toggle in the composer.
+
+Verified:
+- 104 backend tests (including branching, edit of the first message, cross-conversation id rejection, continue
+  rules, search wildcard escaping, export formats, delete audit without content, JSON mode).
+- 56 frontend tests (Markdown safety, live-turn merging for send/edit/regenerate/continue, edit/regenerate/
+  version-switch/continue flows).
+- 2 Playwright end-to-end tests in the installed Microsoft Edge against the real stack (production web build on
+  :3100, API on :8100 with a temporary data folder, Ollama with `llama3.2`): send, stream, reload,
+  rename, export download, search, delete with confirmation; and stop, partial reply kept, continue, stop again.
+
+Fixed during verification:
+- Exported files were named `conversation.md`: the browser hid `Content-Disposition` from the web UI because
+  CORS didn't expose it. The API now exposes it (covered by a backend test). Found by the end-to-end test.
+
+Notes:
+- Titles are still taken from the first message. Model-generated titles were left out on purpose: on this
+  CPU-only machine they would add a second slow generation to every new chat. Rename is available instead.
+- Search uses LIKE, not FTS5, so the same code works on PostgreSQL. It is fine for thousands of conversations;
+  an indexed search can replace it if needed.
 
 ## Known limitations (current)
 - CPU-only inference: 7B models run at about 5 tok/s, so small models are the default for interactivity.

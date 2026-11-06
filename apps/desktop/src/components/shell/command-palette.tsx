@@ -1,7 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Monitor, Moon, PanelLeft, Sun } from "lucide-react";
+import { MessageSquare, Monitor, Moon, PanelLeft, Sun } from "lucide-react";
+import { useDeferredValue, useState } from "react";
 
 import {
   Command,
@@ -14,6 +15,8 @@ import {
   CommandSeparator,
   CommandShortcut,
 } from "@/components/ui/command";
+import { useApiHealth } from "@/hooks/use-api-health";
+import { useConversationSearch } from "@/hooks/use-chat";
 import { NAV_ITEMS } from "@/lib/navigation";
 import { setThemePreference, toggleSidebar, type ThemePreference } from "@/lib/preferences";
 
@@ -24,14 +27,19 @@ const THEME_COMMANDS: { value: ThemePreference; label: string; icon: typeof Sun 
 ];
 
 /**
- * Search & commands. In this milestone it searches navigation and app commands;
- * conversation and project search are added once that data exists (Milestones 5 and 7).
+ * Search & commands: conversations (titles and message text, searched by the API), sections and app
+ * commands. Project search is added with projects in Milestone 7.
  */
 export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const router = useRouter();
+  const [query, setQuery] = useState("");
+  const deferred = useDeferredValue(query.trim());
+  const health = useApiHealth();
+  const results = useConversationSearch(deferred, open && health.isSuccess && deferred.length >= 2);
 
   function run(action: () => void) {
     onOpenChange(false);
+    setQuery("");
     action();
   }
 
@@ -43,9 +51,44 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
       description="Jump to a section or run a command"
     >
       <Command>
-        <CommandInput placeholder="Search sections and commands…" />
+        <CommandInput
+          placeholder="Search conversations, sections and commands…"
+          value={query}
+          onValueChange={setQuery}
+        />
         <CommandList>
           <CommandEmpty>No matching sections or commands.</CommandEmpty>
+          {deferred.length >= 2 && health.isSuccess && (
+            // Results come from the server (they may match message text), so cmdk's own filter is bypassed.
+            <CommandGroup heading="Conversations" forceMount>
+              {results.isPending && (
+                <CommandItem forceMount disabled value="__searching">
+                  Searching…
+                </CommandItem>
+              )}
+              {results.data?.length === 0 && (
+                <CommandItem forceMount disabled value="__none">
+                  No conversations match
+                </CommandItem>
+              )}
+              {results.data?.map((h) => (
+                <CommandItem
+                  key={h.conversation.id}
+                  forceMount
+                  value={`conversation-${h.conversation.id}`}
+                  onSelect={() => run(() => router.push(`/chat/${h.conversation.id}`))}
+                >
+                  <MessageSquare aria-hidden="true" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">{h.conversation.title}</span>
+                    {h.match === "message" && (
+                      <span className="block truncate text-xs text-muted-foreground">{h.snippet}</span>
+                    )}
+                  </span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
           <CommandGroup heading="Go to">
             {NAV_ITEMS.filter((item) => item.href !== null).map((item) => (
               <CommandItem

@@ -3,3 +3,6 @@ node_modules
 next-env.d.ts
 pnpm-lock.yaml
 src/components/ui
+.next-e2e
+test-results
+playwright-report

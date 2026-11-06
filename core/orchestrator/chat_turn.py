@@ -52,8 +52,17 @@ def message_payload(m: Message) -> dict[str, Any]:
         "prompt_tokens": m.prompt_tokens,
         "completion_tokens": m.completion_tokens,
         "error": m.error,
+        "finish_reason": m.finish_reason,
         "created_at": m.created_at.isoformat(),
     }
+
+
+def _is_json(text: str) -> bool:
+    try:
+        json.loads(text)
+    except ValueError:
+        return False
+    return True
 
 
 async def stream_turn(
@@ -65,7 +74,9 @@ async def stream_turn(
     params: GenerationParams,
     assistant_message_id: str,
     start_data: dict[str, Any],
+    initial_content: str = "",
 ) -> AsyncGenerator[TurnEvent]:
+    """`initial_content` is the existing text when continuing a reply; new tokens are appended to it."""
     parts: list[str] = []
     done: GenerationDone | None = None
     error: ProviderError | None = None
@@ -93,7 +104,15 @@ async def stream_turn(
     finally:
         # Must complete even when the request was cancelled (client disconnected).
         with anyio.CancelScope(shield=True):
-            saved = await _persist(sessionmaker, assistant_message_id, "".join(parts), status, done, error)
+            saved = await _persist(
+                sessionmaker,
+                assistant_message_id,
+                initial_content + "".join(parts),
+                status,
+                done,
+                error,
+                continued=bool(initial_content),
+            )
         log.info(
             "turn.finished",
             model_id=model_id,
@@ -104,15 +123,15 @@ async def stream_turn(
         )
 
     if status == "complete" and saved is not None:
-        yield TurnEvent(
-            "done",
-            {
-                "message": message_payload(saved),
-                "finish_reason": done.finish_reason if done else "stop",
-                "total_duration_ms": done.total_duration_ms if done else None,
-                "load_duration_ms": done.load_duration_ms if done else None,
-            },
-        )
+        data: dict[str, Any] = {
+            "message": message_payload(saved),
+            "finish_reason": done.finish_reason if done else "stop",
+            "total_duration_ms": done.total_duration_ms if done else None,
+            "load_duration_ms": done.load_duration_ms if done else None,
+        }
+        if params.response_format == "json":
+            data["json_valid"] = _is_json(saved.content)
+        yield TurnEvent("done", data)
     elif status == "error" and error is not None:
         yield TurnEvent(
             "error",
@@ -127,6 +146,8 @@ async def _persist(
     status: str,
     done: GenerationDone | None,
     error: ProviderError | None,
+    *,
+    continued: bool = False,
 ) -> Message | None:
     try:
         async with sessionmaker() as db:
@@ -138,7 +159,13 @@ async def _persist(
             msg.error = error.message if error else None
             if done is not None:
                 msg.prompt_tokens = done.prompt_tokens
-                msg.completion_tokens = done.completion_tokens
+                if continued and msg.completion_tokens is not None and done.completion_tokens is not None:
+                    msg.completion_tokens += done.completion_tokens
+                else:
+                    msg.completion_tokens = done.completion_tokens
+                msg.finish_reason = done.finish_reason
+            elif status != "complete":
+                msg.finish_reason = status
             conv = await db.get(Conversation, msg.conversation_id)
             if conv is not None:
                 conv.updated_at = utcnow()

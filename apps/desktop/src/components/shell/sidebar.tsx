@@ -91,12 +91,9 @@ export function Sidebar({ pathname, onSearch, onNavigate, variant = "desktop" }:
       </nav>
 
       <section
-        aria-labelledby="recents-heading"
+        aria-label="Conversations"
         className={cn("mt-6 min-h-0 flex-1 overflow-y-auto px-4 pb-2", hideWhenCollapsed)}
       >
-        <h2 id="recents-heading" className="text-xs font-medium text-muted-foreground">
-          Recents
-        </h2>
         <RecentConversations pathname={pathname} onNavigate={onNavigate} />
       </section>
 

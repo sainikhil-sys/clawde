@@ -8,16 +8,28 @@
 
 import type { QueryClient } from "@tanstack/react-query";
 
-import { api, ApiError, ApiUnreachableError, streamMessage, type ChatMessage, type GenerationParams } from "./api";
+import {
+  api,
+  ApiError,
+  ApiUnreachableError,
+  streamTurn,
+  type ChatMessage,
+  type GenerationParams,
+  type TurnRequest,
+} from "./api";
 
 export type TurnPhase = "sending" | "streaming" | "settling";
 
 export type LiveTurn = {
   conversationId: string;
-  user: ChatMessage;
+  kind: TurnRequest["kind"];
+  /** The new user message (send / edit). Null for regenerate and continue. */
+  user: ChatMessage | null;
   assistant: ChatMessage;
   phase: TurnPhase;
   historyDropped: number;
+  /** Persisted messages from this id onwards are replaced by the live turn (edit / regenerate). */
+  replaceFrom?: string;
   /** Set when the request failed before the server accepted it; the draft can be restored. */
   failed?: { message: string; content: string };
 };
@@ -68,7 +80,7 @@ function placeholder(
   conversationId: string,
   role: "user" | "assistant",
   content: string,
-  modelId: string,
+  modelId: string | null,
 ): ChatMessage {
   return {
     id: `local-${role}-${Date.now()}`,
@@ -81,6 +93,7 @@ function placeholder(
     prompt_tokens: null,
     completion_tokens: null,
     error: null,
+    finish_reason: null,
     created_at: new Date().toISOString(),
   };
 }
@@ -91,51 +104,64 @@ function describeError(err: unknown): string {
   return "Something went wrong while sending.";
 }
 
-/**
- * Starts streaming a reply. Resolves when the turn has fully finished and been reconciled with the
- * server copy (it does not need to be awaited by the UI).
- */
-export async function startTurn(opts: {
+export type StartTurnOptions = {
   conversationId: string;
-  content: string;
-  modelId: string;
-  params: GenerationParams;
+  request: TurnRequest;
   queryClient: QueryClient;
-}): Promise<void> {
-  const { conversationId: id, content, modelId, params, queryClient } = opts;
+  /** For regenerate / continue: the existing assistant message (continue keeps its text). */
+  existing?: ChatMessage;
+};
+
+/**
+ * Starts streaming a turn. Resolves when it has fully finished and been reconciled with the server copy
+ * (the UI does not need to await it).
+ */
+export async function startTurn({
+  conversationId: id,
+  request,
+  queryClient,
+  existing,
+}: StartTurnOptions): Promise<void> {
   if (isGenerating(id)) return;
+  const modelId = "model_id" in request ? request.model_id : (existing?.model_id ?? null);
+  const draft = request.kind === "send" ? request.content : "";
 
   const ctrl = new AbortController();
   controllers.set(id, ctrl);
   turns.set(id, {
     conversationId: id,
-    user: placeholder(id, "user", content, modelId),
-    assistant: placeholder(id, "assistant", "", modelId),
+    kind: request.kind,
+    user: request.kind === "send" ? placeholder(id, "user", request.content, null) : null,
+    assistant:
+      request.kind === "continue" && existing
+        ? { ...existing, status: "streaming", error: null }
+        : placeholder(id, "assistant", "", modelId),
     phase: "sending",
     historyDropped: 0,
+    replaceFrom:
+      request.kind === "send" ? request.edit_of : request.kind === "regenerate" ? request.message_id : undefined,
   });
   emit();
 
   let accepted = false;
-  let assistantId: string | null = null;
+  let assistantId: string | null = existing?.id ?? null;
   try {
-    for await (const ev of streamMessage(id, { content, model_id: modelId, params }, ctrl.signal)) {
+    for await (const ev of streamTurn(id, request, ctrl.signal)) {
       if (ev.event === "start") {
         accepted = true;
         assistantId = ev.data.assistant_message.id;
         set(id, (t) => ({
           ...t,
-          user: ev.data.user_message,
+          user: ev.data.user_message ?? t.user,
           assistant: ev.data.assistant_message,
           phase: "streaming",
           historyDropped: ev.data.history_messages_dropped,
         }));
-        // The title is set on the first message; refresh the sidebar.
         void queryClient.invalidateQueries({ queryKey: ["conversations"] });
       } else if (ev.event === "token") {
         set(id, (t) => ({ ...t, assistant: { ...t.assistant, content: t.assistant.content + ev.data.text } }));
       } else if (ev.event === "done") {
-        set(id, (t) => ({ ...t, assistant: ev.data.message }));
+        set(id, (t) => ({ ...t, assistant: { ...ev.data.message, sibling_ids: t.assistant.sibling_ids } }));
       } else if (ev.event === "error") {
         set(id, (t) => ({ ...t, assistant: { ...t.assistant, status: "error", error: ev.data.message } }));
       }
@@ -145,10 +171,10 @@ export async function startTurn(opts: {
     if (aborted && accepted) {
       set(id, (t) => ({ ...t, assistant: { ...t.assistant, status: "cancelled" } }));
     } else if (!accepted) {
-      // Nothing was saved server-side (or the stop came before the server accepted it): give the draft back.
+      // Nothing was saved server-side: give any draft back and show why.
       set(id, (t) => ({
         ...t,
-        failed: { message: aborted ? "Stopped before sending." : describeError(err), content },
+        failed: { message: aborted ? "Stopped before sending." : describeError(err), content: draft },
       }));
       controllers.delete(id);
       return;
@@ -180,6 +206,24 @@ async function reconcile(id: string, assistantId: string | null, queryClient: Qu
   }
   void queryClient.invalidateQueries({ queryKey: ["conversations"] });
 }
+
+/** Messages to display: the persisted branch with the live turn merged in. */
+export function mergeLiveTurn(persisted: ChatMessage[], live: LiveTurn | undefined): ChatMessage[] {
+  if (!live || live.failed) return persisted;
+  if (live.kind === "continue") {
+    return persisted.map((m) => (m.id === live.assistant.id ? { ...live.assistant, sibling_ids: m.sibling_ids } : m));
+  }
+  let base = persisted;
+  if (live.replaceFrom) {
+    const idx = persisted.findIndex((m) => m.id === live.replaceFrom);
+    if (idx >= 0) base = persisted.slice(0, idx);
+  }
+  const liveIds = new Set([live.user?.id, live.assistant.id]);
+  base = base.filter((m) => !liveIds.has(m.id));
+  return live.user ? [...base, live.user, live.assistant] : [...base, live.assistant];
+}
+
+export type { GenerationParams };
 
 /** Test helper. */
 export function _resetChatStore() {

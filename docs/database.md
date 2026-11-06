@@ -85,5 +85,14 @@ ever drift apart.
 Message statuses used from M4: `streaming` → `complete` | `error` | `cancelled`. Replies still `streaming` at
 startup (after a crash) become `cancelled`.
 
+## Revision `0003_branches_templates` (Milestone 5)
+
+- `conversations.current_leaf_id` varchar(32) null: the last message of the branch being shown. There is no FK
+  (it would be circular with `messages.conversation_id`); `services/conversation` keeps it valid and falls back
+  to the newest message. The upgrade backfills existing conversations.
+- `messages.finish_reason` varchar(20) null: `stop`, `length` (can be continued), `cancelled`, `error` or
+  backend-specific.
+- New table `prompt_templates`: `id` PK · `name` varchar(200) · `content` text · `created_at` · `updated_at`.
+
 Planned tables (attachments, documents, chunks, memories, artifacts, models, agent runs, evaluations, research
 runs) are listed in `docs/02-architecture.md` §5 and arrive with their milestones.

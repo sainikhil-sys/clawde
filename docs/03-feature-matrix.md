@@ -4,12 +4,12 @@ Status: ⬜ not started · 🟨 in progress · ✅ done and tested · ⚠ hardwa
 
 | Area | Feature | Milestone | Feasibility on this machine | Status |
 |---|---|---|---|---|
-| Chat | New / history / search / rename / delete / archive / pin / folders | M5 | Full | ⬜ |
+| Chat | New / history / search / rename / delete / archive / pin / folders | M5 | Full | ✅ |
 | Chat | Streaming and stop (partial reply kept) | M4 | Full | ✅ |
-| Chat | Continue and retry | M5 | Full | ⬜ |
-| Chat | Markdown + syntax highlighting, copy, timestamps | M5 | Full | ⬜ |
-| Chat | Edit message / regenerate (branching) | M5 | Full | ⬜ |
-| Chat | Export (Markdown, JSON) | M5 | Full | ⬜ |
+| Chat | Continue and retry | M5 | Full | ✅ |
+| Chat | Markdown + syntax highlighting, copy, timestamps | M5 | Full | ✅ |
+| Chat | Edit message / regenerate (branching, version switcher) | M5 | Full | ✅ |
+| Chat | Export (Markdown, JSON) | M5 | Full | ✅ |
 | Files | PDF, TXT, MD, DOCX, CSV, XLSX, JSON, code | M6 | Full | ⬜ |
 | Files | Images: preview + metadata; understanding needs a vision model | M6 | ⚠ vision models are slow on CPU; OCR optional (Tesseract) | ⬜ |
 | Models | Ollama adapter: list, metadata, chat streaming | M4 | Full | ✅ |
@@ -34,9 +34,9 @@ Status: ⬜ not started · 🟨 in progress · ✅ done and tested · ⚠ hardwa
 | Agents | Tools: file read/write, doc search, calculator, JSON, knowledge, project search | M10 | Full | ⬜ |
 | Agents | Sandboxed Python | M10 | Docker tier full; fallback tier ⚠ reduced isolation | ⬜ |
 | Intelligence | RAG, doc QA, summarisation, code gen/explain/debug | M6–M8 | Full | ⬜ |
-| Intelligence | JSON mode / structured output | M5 | Full (Ollama `format` schema + validation) | ⬜ |
+| Intelligence | JSON mode / structured output | M5 | Full (Ollama `format: json` + validity check) | ✅ |
 | Intelligence | Tool calling | M10 | Native where supported, JSON fallback otherwise | ⬜ |
-| Intelligence | Prompt templates | M5 | Full | ⬜ |
+| Intelligence | Prompt templates | M5 | Full | ✅ |
 | Evaluation | Suites incl. refusal behaviour, latency, RAM | M11–M13 | Full (slow for 7B; runs are queued) | ⬜ |
 | Research | Datasets: import, inspect, split, stats | M12 | Full | ⬜ |
 | Research | Tokenizer experiments (train BPE, compare) | M12 | Full | ⬜ |
@@ -52,4 +52,5 @@ Status: ⬜ not started · 🟨 in progress · ✅ done and tested · ⚠ hardwa
 | UX | Light/dark/system theme, persisted, no flash | M2 | Full | ✅ |
 | UX | Sidebar with 8 sections, collapse, mobile drawer | M2 | Full | ✅ |
 | UX | Keyboard navigation: skip link, `Ctrl+K` palette, `Ctrl+.` sidebar, focus rings | M2 | Full | ✅ |
-| UX | Command palette: conversation and project search | M5, M7 | Full | ⬜ |
+| UX | Command palette: conversation search | M5 | Full | ✅ |
+| UX | Command palette: project search | M7 | Full | ⬜ |

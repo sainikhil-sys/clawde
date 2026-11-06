@@ -22,7 +22,7 @@ from storage.database.engine import Database
 from .config import APP_VERSION, Settings, get_settings
 from .logging_setup import configure_logging
 from .middleware import BodySizeLimitMiddleware, OriginCheckMiddleware, RequestContextMiddleware
-from .routers import audit, health, models, session, settings
+from .routers import audit, folders, health, models, session, settings, templates
 from .routers import conversations as conversations_router
 from .security import CSRF_HEADER
 
@@ -98,6 +98,8 @@ def create_app(
         audit.router,
         models.router,
         conversations_router.router,
+        folders.router,
+        templates.router,
     ):
         app.include_router(router, prefix=api_prefix)
 
@@ -109,7 +111,8 @@ def create_app(
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["Content-Type", CSRF_HEADER],
-        expose_headers=["X-Request-ID"],
+        # Content-Disposition carries export filenames; browsers hide it from cross-origin JS unless exposed.
+        expose_headers=["X-Request-ID", "Content-Disposition"],
     )
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=cfg.max_request_bytes)
     app.add_middleware(RequestContextMiddleware)

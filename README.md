@@ -3,9 +3,9 @@
 A local-first, offline-capable AI assistant platform: chat, projects, memory, artifacts, agents, a model library
 and a research and training studio. It runs on open-weight models and needs no paid APIs.
 
-**Status:** Milestone 4 (local model inference and streaming) complete. You can chat with any chat model
-installed in Ollama: replies stream token by token, Stop works, and conversations persist. Full chat features
-(Markdown, editing, regenerating, history management) arrive in Milestone 5.
+**Status:** Milestone 5 (complete chat) done. Chat with any model installed in Ollama, with Markdown and
+highlighted code, editing, regenerating, continuing and retrying (with version history), stop, timestamps,
+search, folders, pin/archive, export, prompt templates and JSON mode. File attachments arrive in Milestone 6.
 
 ## Requirements
 
@@ -64,6 +64,13 @@ model). They are skipped automatically when Ollama isn't running; run only them 
 
 ```bash
 pnpm build:web
+```
+
+End-to-end tests drive the real stack (production web build, API with a temporary data folder,
+local Ollama) in the Microsoft Edge already installed on Windows. No browser download is needed:
+
+```bash
+pnpm --filter desktop e2e
 ```
 
 ## Repository layout (so far)

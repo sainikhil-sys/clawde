@@ -1,4 +1,5 @@
 """ORM models. M3: sessions, audit log, settings, conversation core. M4: model registry.
+M5: active branch pointer, finish reasons, prompt templates.
 
 Later milestones add their tables through new Alembic revisions (see docs/02-architecture.md §5).
 """
@@ -81,6 +82,9 @@ class Conversation(Base):
     pinned: Mapped[bool] = mapped_column(Boolean, default=False)
     archived: Mapped[bool] = mapped_column(Boolean, default=False)
     model_id: Mapped[str | None] = mapped_column(String(200))
+    #: Last message of the branch being shown. No FK: messages already reference conversations, and a
+    #: circular constraint would complicate deletes. Kept valid by services/conversation.
+    current_leaf_id: Mapped[str | None] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow, index=True)
 
@@ -105,6 +109,8 @@ class Message(Base):
     prompt_tokens: Mapped[int | None] = mapped_column(Integer)
     completion_tokens: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
+    #: Why generation ended: "stop", "length" (hit max tokens, can be continued), backend-specific otherwise.
+    finish_reason: Mapped[str | None] = mapped_column(String(20))
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
@@ -134,3 +140,15 @@ class ModelRecord(Base):
     available: Mapped[bool] = mapped_column(Boolean, default=True)
     first_seen_at: Mapped[datetime] = mapped_column(default=utcnow)
     last_synced_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class PromptTemplate(Base):
+    """Reusable prompt text the user can insert into the composer."""
+
+    __tablename__ = "prompt_templates"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(200))
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)

@@ -23,7 +23,7 @@ function stubApi() {
         return Response.json({ status: "ok", version: "0.1.0", database: { status: "ok" } });
       }
       if (url.endsWith("/api/session")) return Response.json({ csrf_token: "t", created_at: "", expires_at: "" });
-      if (url.endsWith("/api/conversations")) return Response.json(conversations);
+      if (new URL(url).pathname === "/api/conversations") return Response.json(conversations);
       return new Response(null, { status: 404 });
     }),
   );

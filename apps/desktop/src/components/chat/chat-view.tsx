@@ -3,9 +3,10 @@
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { LogoMark } from "@/components/brand/logo";
+import { ConversationMenu } from "@/components/conversation/conversation-menu";
 import { useApiHealth } from "@/hooks/use-api-health";
 import {
   useAppSettings,
@@ -15,13 +16,20 @@ import {
   useModels,
   useUpdateSettings,
 } from "@/hooks/use-chat";
-import { api, ApiError, ApiUnreachableError } from "@/lib/api";
-import { dismissFailedTurn, startTurn, stopTurn, type LiveTurn } from "@/lib/chat-store";
+import { api, ApiError, ApiUnreachableError, type ChatMessage } from "@/lib/api";
+import { dismissFailedTurn, mergeLiveTurn, startTurn, stopTurn, type LiveTurn } from "@/lib/chat-store";
 
 import { Composer } from "./composer";
 import { GenerationSettings } from "./generation-settings";
-import { MessageList } from "./message-list";
+import { MessageList, type MessageActions } from "./message-list";
 import { ModelSelect } from "./model-select";
+import { TemplatesMenu } from "./templates-menu";
+
+function errorText(err: unknown, fallback: string): string {
+  if (err instanceof ApiUnreachableError) return "Couldn't reach the local API.";
+  if (err instanceof ApiError) return err.message;
+  return fallback;
+}
 
 /** `conversationId` null = a new chat (home page). The conversation is created on first send. */
 export function ChatView({ conversationId }: { conversationId: string | null }) {
@@ -57,19 +65,17 @@ export function ChatView({ conversationId }: { conversationId: string | null }) 
   if (live?.failed && live !== handledFailure) {
     setHandledFailure(live);
     const { content, message } = live.failed;
-    setDraft((d) => d || content);
+    if (content) setDraft((d) => d || content);
     setSendError(message);
   }
   useEffect(() => {
     if (conversationId && handledFailure?.failed) dismissFailedTurn(conversationId);
   }, [conversationId, handledFailure]);
 
-  const messages = useMemo(() => {
-    const persisted = conversation.data?.messages ?? [];
-    if (!live || live.failed) return persisted;
-    const liveIds = new Set([live.user.id, live.assistant.id]);
-    return [...persisted.filter((m) => !liveIds.has(m.id)), live.user, live.assistant];
-  }, [conversation.data?.messages, live]);
+  const messages = useMemo(
+    () => mergeLiveTurn(conversation.data?.messages ?? [], live),
+    [conversation.data?.messages, live],
+  );
   const generating = !!live && !live.failed && live.phase !== "settling";
 
   // Follow the stream unless the user has scrolled up to read.
@@ -85,32 +91,51 @@ export function ChatView({ conversationId }: { conversationId: string | null }) 
   else if (models.isError) blocked = "Couldn't load models";
   else if (chatModels.length === 0) blocked = providerDown ? "Ollama isn't running" : "No chat models installed";
 
+  function run(id: string, request: Parameters<typeof startTurn>[0]["request"], existing?: ChatMessage) {
+    setSendError(null);
+    stickToBottom.current = true;
+    void startTurn({ conversationId: id, request, queryClient, existing });
+  }
+
   async function send() {
     const content = draft.trim();
     if (!content || !modelId || generating) return;
-    setSendError(null);
     setDraft("");
-    stickToBottom.current = true;
     let id = conversationId;
     if (!id) {
       try {
-        const conv = await api.createConversation({ model_id: modelId });
-        id = conv.id;
+        id = (await api.createConversation({ model_id: modelId })).id;
       } catch (err) {
         setDraft(content);
-        setSendError(
-          err instanceof ApiUnreachableError
-            ? "Couldn't reach the local API."
-            : err instanceof ApiError
-              ? err.message
-              : "Couldn't start a conversation.",
-        );
+        setSendError(errorText(err, "Couldn't start a conversation."));
         return;
       }
     }
-    void startTurn({ conversationId: id, content, modelId, params, queryClient });
+    run(id, { kind: "send", content, model_id: modelId, params });
     if (!conversationId) router.push(`/chat/${id}`);
   }
+
+  const actions: MessageActions = {
+    onEdit: (message, newContent) => {
+      if (!conversationId || !modelId) return;
+      run(conversationId, { kind: "send", content: newContent, model_id: modelId, params, edit_of: message.id });
+    },
+    onRegenerate: (message) => {
+      if (!conversationId || !modelId) return;
+      run(conversationId, { kind: "regenerate", message_id: message.id, model_id: modelId, params }, message);
+    },
+    onContinue: (message) => {
+      if (!conversationId) return;
+      run(conversationId, { kind: "continue", message_id: message.id, params }, message);
+    },
+    onSelectSibling: (messageId) => {
+      if (!conversationId) return;
+      api
+        .selectBranch(conversationId, messageId)
+        .then((detail) => queryClient.setQueryData(["conversation", conversationId], detail))
+        .catch((err) => setSendError(errorText(err, "Couldn't switch versions.")));
+    },
+  };
 
   function chooseModel(id: string) {
     setPickedModel(id);
@@ -120,9 +145,21 @@ export function ChatView({ conversationId }: { conversationId: string | null }) 
 
   const notFound = conversation.error instanceof ApiError && conversation.error.status === 404;
   const empty = messages.length === 0;
+  const conv = conversation.data;
 
   return (
     <div className="flex h-full flex-col">
+      {conv && !notFound && (
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4 sm:px-6">
+          <h1 className="min-w-0 flex-1 truncate text-sm font-medium" title={conv.title}>
+            {conv.title}
+          </h1>
+          {conv.archived && (
+            <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">Archived</span>
+          )}
+          <ConversationMenu conversation={conv} onDeleted={() => router.push("/")} />
+        </header>
+      )}
       <div
         ref={scrollRef}
         onScroll={(e) => {
@@ -144,7 +181,7 @@ export function ChatView({ conversationId }: { conversationId: string | null }) 
             <p className="py-16 text-center text-sm text-muted-foreground" role="status">
               Loading conversation…
             </p>
-          ) : conversation.isError && !notFound ? (
+          ) : conversation.isError ? (
             <p className="py-16 text-center text-sm text-destructive" role="alert">
               Couldn&apos;t load this conversation: {conversation.error.message}
             </p>
@@ -152,14 +189,13 @@ export function ChatView({ conversationId }: { conversationId: string | null }) 
             <EmptyChat />
           ) : (
             <>
-              {conversation.data && <h1 className="sr-only">{conversation.data.title}</h1>}
               {live && live.historyDropped > 0 && (
                 <p className="mb-6 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
                   {live.historyDropped} older message{live.historyDropped === 1 ? " was" : "s were"} left out to fit the
                   model&apos;s context window.
                 </p>
               )}
-              <MessageList messages={messages} phase={live?.phase} />
+              <MessageList messages={messages} phase={live?.phase} busy={generating || !!blocked} actions={actions} />
             </>
           )}
         </div>
@@ -196,6 +232,12 @@ export function ChatView({ conversationId }: { conversationId: string | null }) 
                 onChange={setParams}
                 maxContext={selectedModel?.context_length ?? null}
               />
+              {apiUp && (
+                <TemplatesMenu draft={draft} onInsert={(text) => setDraft((d) => (d ? `${d}\n\n${text}` : text))} />
+              )}
+              {params.response_format === "json" && (
+                <span className="rounded border px-1.5 py-0.5 font-mono text-[0.7rem] text-muted-foreground">JSON</span>
+              )}
             </>
           }
         />
@@ -233,7 +275,7 @@ function StatusNotice({
   noModels: boolean;
   onRetry: () => void;
 }) {
-  let body: React.ReactNode = null;
+  let body: ReactNode = null;
   if (!apiUp && !apiPending) {
     body = (
       <>

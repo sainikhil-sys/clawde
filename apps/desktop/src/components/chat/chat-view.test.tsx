@@ -66,6 +66,7 @@ function sseResponse(events: [string, unknown][], hold?: Promise<void>): Respons
 let models: { models: unknown[]; providers: unknown[] };
 let conversationDetail: unknown;
 let streamHandler: Handler;
+let branchDetail: unknown = null;
 const calls: { url: string; init: RequestInit }[] = [];
 
 function stub() {
@@ -83,7 +84,8 @@ function stub() {
         return Response.json({ id: "c1", title: "New conversation", model_id: MODEL.id }, { status: 201 });
       }
       if (url.endsWith("/api/conversations")) return Response.json([]);
-      if (url.endsWith("/api/conversations/c1/messages")) return streamHandler(url, init);
+      if (/\/api\/conversations\/c1\/(messages|regenerate|continue)$/.test(url)) return streamHandler(url, init);
+      if (url.endsWith("/api/conversations/c1/branch")) return Response.json(branchDetail ?? conversationDetail);
       if (url.endsWith("/api/conversations/c1")) return Response.json(conversationDetail);
       return new Response(null, { status: 404 });
     }),
@@ -107,6 +109,7 @@ describe("ChatView", () => {
     _resetChatStore();
     models = { models: [MODEL], providers: [{ name: "ollama", status: "ok", message: null, model_count: 1 }] };
     conversationDetail = { id: "c1", title: "Hi", model_id: MODEL.id, messages: [] };
+    branchDetail = null;
     stub();
   });
   afterEach(() => {
@@ -229,5 +232,107 @@ describe("ChatView", () => {
     expect(await screen.findByText("answer")).toBeInTheDocument();
     expect(screen.getByText("question")).toBeInTheDocument();
     expect(screen.getByText(/3 tokens/)).toBeInTheDocument();
+  });
+
+  it("edits a message as a new version and sends edit_of", async () => {
+    const user = userEvent.setup();
+    conversationDetail = {
+      id: "c1",
+      title: "Old",
+      model_id: MODEL.id,
+      messages: [msg("u1", "user", "first draft"), msg("a1", "assistant", "answer")],
+    };
+    streamHandler = () =>
+      sseResponse([
+        [
+          "start",
+          {
+            conversation: {},
+            user_message: msg("u2", "user", "second draft"),
+            assistant_message: msg("a2", "assistant", "", "streaming"),
+            history_messages_dropped: 0,
+          },
+        ],
+        ["token", { text: "better answer" }],
+        ["done", { message: msg("a2", "assistant", "better answer"), finish_reason: "stop", total_duration_ms: 1 }],
+      ]);
+    renderChat("c1");
+    await screen.findByText("first draft");
+    await user.click(screen.getByRole("button", { name: "Edit message" }));
+    const box = screen.getByLabelText("Edit message");
+    await user.clear(box);
+    await user.type(box, "second draft");
+    await user.click(screen.getByRole("button", { name: "Send edit" }));
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith("/messages"))).toBe(true));
+    const body = JSON.parse(calls.find((c) => c.url.endsWith("/messages"))!.init.body as string);
+    expect(body).toMatchObject({ content: "second draft", edit_of: "u1" });
+  });
+
+  it("regenerates a reply via the regenerate endpoint", async () => {
+    const user = userEvent.setup();
+    conversationDetail = {
+      id: "c1",
+      title: "Old",
+      model_id: MODEL.id,
+      messages: [msg("u1", "user", "q"), msg("a1", "assistant", "first answer")],
+    };
+    streamHandler = () =>
+      sseResponse([
+        [
+          "start",
+          {
+            conversation: {},
+            user_message: null,
+            assistant_message: msg("a2", "assistant", "", "streaming"),
+            history_messages_dropped: 0,
+          },
+        ],
+        ["done", { message: msg("a2", "assistant", "second answer"), finish_reason: "stop", total_duration_ms: 1 }],
+      ]);
+    renderChat("c1");
+    await screen.findByText("first answer");
+    await user.click(screen.getByRole("button", { name: "Regenerate reply" }));
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith("/regenerate"))).toBe(true));
+    const body = JSON.parse(calls.find((c) => c.url.endsWith("/regenerate"))!.init.body as string);
+    expect(body).toMatchObject({ message_id: "a1", model_id: MODEL.id });
+  });
+
+  it("switches between versions of a reply", async () => {
+    const user = userEvent.setup();
+    const a1 = { ...msg("a1", "assistant", "version one"), sibling_ids: ["a1", "a2"] };
+    const a2 = { ...msg("a2", "assistant", "version two"), sibling_ids: ["a1", "a2"] };
+    conversationDetail = { id: "c1", title: "Old", model_id: MODEL.id, messages: [msg("u1", "user", "q"), a2] };
+    branchDetail = { id: "c1", title: "Old", model_id: MODEL.id, messages: [msg("u1", "user", "q"), a1] };
+    renderChat("c1");
+    expect(await screen.findByText("version two")).toBeInTheDocument();
+    expect(screen.getByText("2 / 2")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Previous version" }));
+    expect(await screen.findByText("version one")).toBeInTheDocument();
+    const put = calls.find((c) => c.url.endsWith("/branch"))!;
+    expect(put.init.method).toBe("PUT");
+    expect(JSON.parse(put.init.body as string)).toEqual({ message_id: "a1" });
+  });
+
+  it("offers Continue on a stopped reply", async () => {
+    conversationDetail = {
+      id: "c1",
+      title: "Old",
+      model_id: MODEL.id,
+      messages: [msg("u1", "user", "q"), msg("a1", "assistant", "half an ans", "cancelled")],
+    };
+    renderChat("c1");
+    expect(await screen.findByRole("button", { name: /Continue/ })).toBeInTheDocument();
+  });
+
+  it("renders assistant replies as Markdown", async () => {
+    conversationDetail = {
+      id: "c1",
+      title: "Old",
+      model_id: MODEL.id,
+      messages: [msg("u1", "user", "q"), msg("a1", "assistant", "**important** and `code`")],
+    };
+    const { container } = renderChat("c1");
+    await screen.findByText("important");
+    expect(container.querySelector("strong")?.textContent).toBe("important");
   });
 });

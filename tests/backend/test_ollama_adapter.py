@@ -105,6 +105,19 @@ async def test_chat_stream_parses_tokens_and_usage() -> None:
     assert seen["options"] == {"temperature": 0.7, "top_p": 0.9, "num_predict": 1024, "num_ctx": 4096}
 
 
+async def test_json_mode_sets_format() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.update(json.loads(req.content))
+        return httpx.Response(200, content=ndjson({"message": {"content": "{}"}, "done": True}))
+
+    p = provider_with(handler)
+    params = GenerationParams(response_format="json")
+    _ = [ev async for ev in p.chat_stream("m", [ChatMessage("user", "hi")], params)]
+    assert seen["format"] == "json"
+
+
 async def test_404_maps_to_model_not_found() -> None:
     p = provider_with(lambda req: httpx.Response(404, json={"error": "model not found"}))
     with pytest.raises(ModelNotFound):

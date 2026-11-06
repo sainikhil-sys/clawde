@@ -108,6 +108,8 @@ class OllamaProvider:
             "options": options,
             "keep_alive": self.keep_alive,
         }
+        if params.response_format == "json":
+            payload["format"] = "json"
         try:
             async with self._client.stream("POST", "/api/chat", json=payload) as resp:
                 if resp.status_code == 404:

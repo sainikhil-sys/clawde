@@ -15,12 +15,12 @@ and `uv.lock` when each package is first added, not guessed here.
 | lucide-react | Icons |
 | @tanstack/react-query | Server state, caching, retries |
 | zustand | Small client UI state |
-| react-markdown, remark-gfm, rehype-katex, katex | Markdown + math |
-| shiki | Syntax highlighting |
+| react-markdown, remark-gfm | Markdown (GFM) |
+| rehype-highlight, highlight.js | Syntax highlighting (theme colours defined in globals.css) |
 | @codemirror/* (via @uiw/react-codemirror) | Artifact source editor |
 | diff | Artifact version comparison |
 | zod | Validate API responses |
-| vitest, @testing-library/react, playwright | Unit + E2E tests |
+| vitest, @testing-library/react, @playwright/test | Unit + E2E tests (E2E uses the installed Edge/Chrome) |
 | eslint, prettier | Lint / format |
 
 ## Artifact sandbox (vendored static files, served offline)

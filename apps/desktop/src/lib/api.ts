@@ -191,7 +191,10 @@ export type ChatMessage = {
   prompt_tokens: number | null;
   completion_tokens: number | null;
   error: string | null;
+  finish_reason: string | null;
   created_at: string;
+  /** This message and its alternatives (edits / regenerations), oldest first. Present on detail reads. */
+  sibling_ids?: string[];
 };
 
 export type Conversation = {
@@ -202,26 +205,48 @@ export type Conversation = {
   pinned: boolean;
   archived: boolean;
   model_id: string | null;
+  current_leaf_id?: string | null;
   created_at: string;
   updated_at: string;
 };
 export type ConversationSummary = Conversation & { message_count: number };
 export type ConversationDetail = Conversation & { messages: ChatMessage[] };
 
-export type GenerationParams = { temperature: number; top_p: number; max_tokens: number; context_length: number };
+export type GenerationParams = {
+  temperature: number;
+  top_p: number;
+  max_tokens: number;
+  context_length: number;
+  response_format: "text" | "json";
+};
+
+export type Folder = { id: string; name: string; created_at: string; updated_at: string; conversation_count: number };
+export type PromptTemplate = { id: string; name: string; content: string; created_at: string; updated_at: string };
+export type SearchHit = {
+  conversation: Conversation;
+  match: "title" | "message";
+  snippet: string;
+  message_id: string | null;
+};
+export type ConversationFilter = { archived?: boolean; pinned?: boolean; folderId?: string; limit?: number };
+export type ConversationPatch = Partial<Pick<Conversation, "title" | "pinned" | "archived" | "folder_id">>;
 
 export type TurnEvent =
   | {
       event: "start";
       data: {
         conversation: Conversation;
-        user_message: ChatMessage;
+        /** Null for regenerate / continue. */
+        user_message: ChatMessage | null;
         assistant_message: ChatMessage;
         history_messages_dropped: number;
       };
     }
   | { event: "token"; data: { text: string } }
-  | { event: "done"; data: { message: ChatMessage; finish_reason: string; total_duration_ms: number | null } }
+  | {
+      event: "done";
+      data: { message: ChatMessage; finish_reason: string; total_duration_ms: number | null; json_valid?: boolean };
+    }
   | { event: "error"; data: { code: string; message: string; message_id: string } };
 
 export const api = {
@@ -237,23 +262,69 @@ export const api = {
   settings: (signal?: AbortSignal) => apiRequest<AppSettings>("/api/settings", { signal }),
   updateSettings: (patch: Partial<AppSettings>) =>
     apiRequest<AppSettings>("/api/settings", { method: "PATCH", body: patch }),
-  conversations: (signal?: AbortSignal) => apiRequest<ConversationSummary[]>("/api/conversations", { signal }),
+  conversations: (filter: ConversationFilter = {}, signal?: AbortSignal) => {
+    const q = new URLSearchParams();
+    if (filter.archived) q.set("archived", "true");
+    if (filter.pinned !== undefined) q.set("pinned", String(filter.pinned));
+    if (filter.folderId) q.set("folder_id", filter.folderId);
+    if (filter.limit) q.set("limit", String(filter.limit));
+    const qs = q.toString();
+    return apiRequest<ConversationSummary[]>(`/api/conversations${qs ? `?${qs}` : ""}`, { signal });
+  },
+  searchConversations: (query: string, signal?: AbortSignal) =>
+    apiRequest<SearchHit[]>(`/api/conversations/search?q=${encodeURIComponent(query)}`, { signal }),
+  updateConversation: (id: string, patch: ConversationPatch) =>
+    apiRequest<Conversation>(`/api/conversations/${encodeURIComponent(id)}`, { method: "PATCH", body: patch }),
+  deleteConversation: (id: string) =>
+    apiRequest<void>(`/api/conversations/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  selectBranch: (id: string, messageId: string) =>
+    apiRequest<ConversationDetail>(`/api/conversations/${encodeURIComponent(id)}/branch`, {
+      method: "PUT",
+      body: { message_id: messageId },
+    }),
+  exportConversation: async (id: string, format: "markdown" | "json") => {
+    const resp = await apiFetch(`/api/conversations/${encodeURIComponent(id)}/export?format=${format}`);
+    const disposition = resp.headers.get("Content-Disposition") ?? "";
+    const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? `conversation.${format === "json" ? "json" : "md"}`;
+    return { blob: await resp.blob(), filename };
+  },
+  folders: (signal?: AbortSignal) => apiRequest<Folder[]>("/api/folders", { signal }),
+  createFolder: (name: string) => apiRequest<Folder>("/api/folders", { method: "POST", body: { name } }),
+  renameFolder: (id: string, name: string) =>
+    apiRequest<Folder>(`/api/folders/${encodeURIComponent(id)}`, { method: "PATCH", body: { name } }),
+  deleteFolder: (id: string) => apiRequest<void>(`/api/folders/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  templates: (signal?: AbortSignal) => apiRequest<PromptTemplate[]>("/api/templates", { signal }),
+  createTemplate: (body: { name: string; content: string }) =>
+    apiRequest<PromptTemplate>("/api/templates", { method: "POST", body }),
+  deleteTemplate: (id: string) => apiRequest<void>(`/api/templates/${encodeURIComponent(id)}`, { method: "DELETE" }),
   conversation: (id: string, signal?: AbortSignal) =>
     apiRequest<ConversationDetail>(`/api/conversations/${encodeURIComponent(id)}`, { signal }),
   createConversation: (body: { title?: string; model_id?: string } = {}) =>
     apiRequest<Conversation>("/api/conversations", { method: "POST", body }),
 };
 
+export type TurnRequest =
+  | { kind: "send"; content: string; model_id: string; params: GenerationParams; edit_of?: string }
+  | { kind: "regenerate"; message_id: string; model_id: string; params: GenerationParams }
+  | { kind: "continue"; message_id: string; params: GenerationParams };
+
+const TURN_PATH: Record<TurnRequest["kind"], string> = {
+  send: "messages",
+  regenerate: "regenerate",
+  continue: "continue",
+};
+
 /**
- * Sends a message and yields the reply as it streams. Aborting `signal` stops generation on the server
- * (the partial reply is kept and marked "cancelled").
+ * Starts a turn (send, regenerate or continue) and yields the reply as it streams. Aborting `signal`
+ * stops generation on the server (the partial reply is kept and marked "cancelled").
  */
-export async function* streamMessage(
+export async function* streamTurn(
   conversationId: string,
-  body: { content: string; model_id: string; params: GenerationParams },
+  request: TurnRequest,
   signal: AbortSignal,
 ): AsyncGenerator<TurnEvent> {
-  const resp = await apiFetch(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
+  const { kind, ...body } = request;
+  const resp = await apiFetch(`/api/conversations/${encodeURIComponent(conversationId)}/${TURN_PATH[kind]}`, {
     method: "POST",
     body,
     signal,

@@ -32,6 +32,7 @@ EXPECTED_TABLES = {
     "conversations",
     "messages",
     "models",
+    "prompt_templates",
 }
 
 
@@ -61,7 +62,7 @@ def test_migrations_match_models(tmp_path: Path) -> None:
 
 
 def test_head_revision_is_single() -> None:
-    assert migrate.head_revision() == "0002_model_registry"
+    assert migrate.head_revision() == "0003_branches_templates"
 
 
 async def test_foreign_keys_enforced_and_cascade(tmp_path: Path) -> None:

@@ -8,7 +8,7 @@ import { DEFAULT_PARAMS } from "@/hooks/use-chat";
 import type { GenerationParams } from "@/lib/api";
 
 type Field = {
-  key: keyof GenerationParams;
+  key: Exclude<keyof GenerationParams, "response_format">;
   label: string;
   hint: string;
   min: number;
@@ -98,6 +98,20 @@ export function GenerationSettings({
             </div>
           );
         })}
+        <label className="flex items-start gap-2.5 border-t pt-3 text-sm">
+          <input
+            type="checkbox"
+            checked={params.response_format === "json"}
+            onChange={(e) => onChange({ ...params, response_format: e.target.checked ? "json" : "text" })}
+            className="mt-0.5 accent-[var(--primary)]"
+          />
+          <span>
+            JSON mode
+            <span className="block text-xs text-muted-foreground">
+              Constrain replies to valid JSON (structured output). Ask for the shape you want in your message.
+            </span>
+          </span>
+        </label>
       </PopoverContent>
     </Popover>
   );

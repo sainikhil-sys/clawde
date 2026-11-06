@@ -9,6 +9,11 @@ import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  usePathname: () => "/",
+}));
+
 import { ApiStatusLine } from "@/components/status/api-status";
 
 import { RecentConversations } from "./recent-conversations";
@@ -32,7 +37,7 @@ describe("hydration", () => {
         if (url.endsWith("/api/health"))
           return Response.json({ status: "ok", version: "0.1.0", database: { status: "ok" } });
         if (url.endsWith("/api/session")) return Response.json({ csrf_token: "t", created_at: "", expires_at: "" });
-        if (url.endsWith("/api/conversations"))
+        if (new URL(url).pathname === "/api/conversations")
           return Response.json([{ id: "a", title: "Saved chat", message_count: 2 }]);
         return new Response(null, { status: 404 });
       }),

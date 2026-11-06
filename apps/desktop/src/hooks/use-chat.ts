@@ -3,7 +3,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useSyncExternalStore } from "react";
 
-import { api, type AppSettings, type GenerationParams } from "@/lib/api";
+import {
+  api,
+  type AppSettings,
+  type ConversationFilter,
+  type ConversationPatch,
+  type GenerationParams,
+} from "@/lib/api";
 import { getTurn, subscribeTurns, type LiveTurn } from "@/lib/chat-store";
 
 export function useModels() {
@@ -22,12 +28,64 @@ export function useUpdateSettings() {
   });
 }
 
-export function useConversations(enabled = true) {
+export function useConversations(filter: ConversationFilter = {}, enabled = true) {
   return useQuery({
-    queryKey: ["conversations"],
-    queryFn: ({ signal }) => api.conversations(signal),
+    queryKey: ["conversations", filter],
+    queryFn: ({ signal }) => api.conversations(filter, signal),
     enabled,
   });
+}
+
+export function useConversationSearch(query: string, enabled = true) {
+  const q = query.trim();
+  return useQuery({
+    queryKey: ["conversation-search", q],
+    queryFn: ({ signal }) => api.searchConversations(q, signal),
+    enabled: enabled && q.length > 0,
+    staleTime: 5_000,
+  });
+}
+
+export function useFolders(enabled = true) {
+  return useQuery({ queryKey: ["folders"], queryFn: ({ signal }) => api.folders(signal), enabled });
+}
+
+export function useTemplates(enabled = true) {
+  return useQuery({ queryKey: ["templates"], queryFn: ({ signal }) => api.templates(signal), enabled });
+}
+
+/** Mutations shared by the sidebar, the history page and the chat header. */
+export function useConversationActions() {
+  const qc = useQueryClient();
+  const refresh = (id?: string) => {
+    void qc.invalidateQueries({ queryKey: ["conversations"] });
+    void qc.invalidateQueries({ queryKey: ["conversation-search"] });
+    void qc.invalidateQueries({ queryKey: ["folders"] });
+    if (id) void qc.invalidateQueries({ queryKey: ["conversation", id] });
+  };
+  const update = useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: ConversationPatch }) => api.updateConversation(id, patch),
+    onSuccess: (_d, { id }) => refresh(id),
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => api.deleteConversation(id),
+    onSuccess: (_d, id) => {
+      qc.removeQueries({ queryKey: ["conversation", id] });
+      refresh();
+    },
+  });
+  async function exportAs(id: string, format: "markdown" | "json") {
+    const { blob, filename } = await api.exportConversation(id, format);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+  return { update, remove, exportAs };
 }
 
 export function useConversation(id: string | null) {
@@ -51,6 +109,7 @@ export const DEFAULT_PARAMS: GenerationParams = {
   top_p: 0.9,
   max_tokens: 1024,
   context_length: 4096,
+  response_format: "text",
 };
 const PARAMS_KEY = "clawde.generation-params";
 
