@@ -173,7 +173,11 @@ export async function startTurn({
       } else if (ev.event === "token") {
         set(id, (t) => ({ ...t, assistant: { ...t.assistant, content: t.assistant.content + ev.data.text } }));
       } else if (ev.event === "done") {
-        set(id, (t) => ({ ...t, assistant: { ...ev.data.message, sibling_ids: t.assistant.sibling_ids } }));
+        set(id, (t) => ({
+          ...t,
+          assistant: { ...ev.data.message, sibling_ids: t.assistant.sibling_ids, artifacts: ev.data.artifacts ?? [] },
+        }));
+        if (ev.data.artifacts?.length) void queryClient.invalidateQueries({ queryKey: ["artifacts"] });
       } else if (ev.event === "error") {
         set(id, (t) => ({ ...t, assistant: { ...t.assistant, status: "error", error: ev.data.message } }));
       }

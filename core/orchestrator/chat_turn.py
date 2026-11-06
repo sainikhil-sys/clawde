@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from contextlib import aclosing
 from dataclasses import dataclass
 from typing import Any
@@ -28,6 +28,9 @@ from storage.database.base import utcnow
 from storage.database.models import Conversation, Message
 
 log = structlog.get_logger("clawde.orchestrator")
+
+#: Post-processing for a completed reply, given its open session (see `stream_turn`).
+OnComplete = Callable[[AsyncSession, Message], Awaitable[dict[str, Any]]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,8 +79,12 @@ async def stream_turn(
     assistant_message_id: str,
     start_data: dict[str, Any],
     initial_content: str = "",
+    on_complete: OnComplete | None = None,
 ) -> AsyncGenerator[TurnEvent]:
-    """`initial_content` is the existing text when continuing a reply; new tokens are appended to it."""
+    """`initial_content` is the existing text when continuing a reply; new tokens are appended to it.
+
+    `on_complete` runs after a completed reply is saved, in the same session (e.g. to extract artifacts). What
+    it returns is added to the `done` event. If it fails, its changes are rolled back; the reply is kept."""
     parts: list[str] = []
     done: GenerationDone | None = None
     error: ProviderError | None = None
@@ -105,7 +112,7 @@ async def stream_turn(
     finally:
         # Must complete even when the request was cancelled (client disconnected).
         with anyio.CancelScope(shield=True):
-            saved = await _persist(
+            saved, extra = await _persist(
                 sessionmaker,
                 assistant_message_id,
                 initial_content + "".join(parts),
@@ -113,6 +120,7 @@ async def stream_turn(
                 done,
                 error,
                 continued=bool(initial_content),
+                on_complete=on_complete,
             )
         log.info(
             "turn.finished",
@@ -132,6 +140,7 @@ async def stream_turn(
         }
         if params.response_format == "json":
             data["json_valid"] = _is_json(saved.content)
+        data.update(extra)
         yield TurnEvent("done", data)
     elif status == "error" and error is not None:
         yield TurnEvent(
@@ -149,12 +158,14 @@ async def _persist(
     error: ProviderError | None,
     *,
     continued: bool = False,
-) -> Message | None:
+    on_complete: OnComplete | None = None,
+) -> tuple[Message | None, dict[str, Any]]:
+    extra: dict[str, Any] = {}
     try:
         async with sessionmaker() as db:
             msg = await db.get(Message, message_id)
             if msg is None:
-                return None
+                return None, extra
             msg.content = content
             msg.status = status
             msg.error = error.message if error else None
@@ -171,8 +182,16 @@ async def _persist(
             if conv is not None:
                 conv.updated_at = utcnow()
             await db.commit()
+            if status == "complete" and on_complete is not None:
+                try:
+                    extra = await on_complete(db, msg)
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+                    log.exception("turn.on_complete_failed", message_id=message_id)
+                    extra = {}
             await db.refresh(msg)
-            return msg
+            return msg, extra
     except Exception:
         log.exception("turn.persist_failed", message_id=message_id)
-        return None
+        return None, extra

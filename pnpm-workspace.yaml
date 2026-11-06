@@ -1,5 +1,7 @@
 packages:
   - apps/desktop
+  - apps/sandbox
 allowBuilds:
   sharp: false
   unrs-resolver: false
+  esbuild: true

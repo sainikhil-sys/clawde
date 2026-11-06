@@ -28,8 +28,9 @@ Status: ⬜ not started · 🟨 in progress · ✅ done and tested · ⚠ hardwa
 | Projects | Export (zip) / delete (incl. index + files) | M7 | Full | ✅ |
 | Memory | 5 memory kinds, CRUD, inspect, search, rank, export, delete all | M8 | Full | ✅ |
 | Memory | Conversation summarisation (manual + automatic rolling summary) | M8 | Full; uses the chat's model | ✅ |
-| Artifacts | HTML/CSS/JS, SVG, Markdown, Mermaid, React, charts | M9 | Full (React via vendored Babel, offline) | ⬜ |
-| Artifacts | Editor, versions, diff, fullscreen, export | M9 | Full | ⬜ |
+| Artifacts | HTML/CSS/JS, SVG, Markdown, Mermaid, React, charts, JavaScript, code | M9 | Full (offline; vendored React/Babel/Mermaid/Chart.js) | ✅ |
+| Artifacts | Editor, versions, diff, restore, fullscreen, copy, export | M9 | Full | ✅ |
+| Artifacts | Isolated sandbox (separate origin, opaque iframe, no network) | M9 | Full | ✅ |
 | Agents | Planner, multi-step, retry, cancel, approvals, history | M10 | Full; reliability depends on model (7B recommended) | ⬜ |
 | Agents | Tools: file read/write, doc search, calculator, JSON, knowledge, project search | M10 | Full | ⬜ |
 | Agents | Sandboxed Python | M10 | Docker tier full; fallback tier ⚠ reduced isolation | ⬜ |
@@ -52,7 +53,7 @@ Status: ⬜ not started · 🟨 in progress · ✅ done and tested · ⚠ hardwa
 | Storage | SQLite + Alembic migrations, PostgreSQL-compatible models | M3 | Full | ✅ |
 | Storage | Structured JSON logs | M3 | Full | ✅ |
 | UX | Light/dark/system theme, persisted, no flash | M2 | Full | ✅ |
-| UX | Sidebar with 8 sections, collapse, mobile drawer | M2 | Full | ✅ |
+| UX | Sidebar with 9 sections (Memory added in M8), collapse, mobile drawer | M2 | Full | ✅ |
 | UX | Keyboard navigation: skip link, `Ctrl+K` palette, `Ctrl+.` sidebar, focus rings | M2 | Full | ✅ |
 | UX | Command palette: conversation search | M5 | Full | ✅ |
 | UX | Command palette: project search | M7 | Full | ✅ |

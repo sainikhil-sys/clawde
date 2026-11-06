@@ -24,6 +24,7 @@ from storage.database.engine import Database
 from .config import APP_VERSION, Settings, get_settings
 from .logging_setup import configure_logging
 from .middleware import BodySizeLimitMiddleware, OriginCheckMiddleware, RequestContextMiddleware
+from .routers import artifacts as artifacts_router
 from .routers import attachments as attachments_router
 from .routers import audit, folders, health, memories, models, projects, session, settings, templates
 from .routers import conversations as conversations_router
@@ -118,6 +119,7 @@ def create_app(
         attachments_router.router,
         projects.router,
         memories.router,
+        artifacts_router.router,
     ):
         app.include_router(router, prefix=api_prefix)
 

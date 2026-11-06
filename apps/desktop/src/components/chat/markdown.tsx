@@ -1,6 +1,7 @@
 "use client";
 
-import { memo, type ComponentPropsWithoutRef, type ReactNode } from "react";
+import { SquareArrowOutUpRight } from "lucide-react";
+import { createContext, memo, useContext, type ComponentPropsWithoutRef, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
@@ -20,7 +21,13 @@ function textOf(node: ReactNode): string {
   return "";
 }
 
+/** Extra actions for fenced code blocks (set by the chat: "Open as artifact"). */
+export const CodeBlockActions = createContext<{
+  onOpenAsArtifact?: (language: string | undefined, code: string) => void;
+}>({});
+
 function CodeBlock({ children, ...props }: ComponentPropsWithoutRef<"pre">) {
+  const { onOpenAsArtifact } = useContext(CodeBlockActions);
   const code = Array.isArray(children) ? children[0] : children;
   const className = (code as { props?: { className?: string } } | undefined)?.props?.className ?? "";
   const language = /language-([\w+#-]+)/.exec(className)?.[1];
@@ -29,7 +36,20 @@ function CodeBlock({ children, ...props }: ComponentPropsWithoutRef<"pre">) {
     <div className="group/code my-4 overflow-hidden rounded-lg border bg-muted/40">
       <div className="flex h-9 items-center justify-between border-b bg-muted/60 pr-1 pl-3 text-xs text-muted-foreground">
         <span className="font-mono">{language ?? "text"}</span>
-        <CopyButton text={text} label="Copy code" />
+        <span className="flex items-center">
+          {onOpenAsArtifact && (
+            <button
+              type="button"
+              onClick={() => onOpenAsArtifact(language, text)}
+              aria-label="Open as artifact"
+              title="Open as artifact"
+              className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <SquareArrowOutUpRight className="size-3.5" />
+            </button>
+          )}
+          <CopyButton text={text} label="Copy code" />
+        </span>
       </div>
       <pre {...props} className="overflow-x-auto p-3 font-mono text-[0.85rem] leading-relaxed">
         {children}

@@ -23,8 +23,18 @@ and `uv.lock` when each package is first added, not guessed here.
 | vitest, @testing-library/react, @playwright/test | Unit + E2E tests (E2E uses the installed Edge/Chrome) |
 | eslint, prettier | Lint / format |
 
-## Artifact sandbox (vendored static files, served offline)
-react / react-dom UMD, @babel/standalone, mermaid, chart.js or vega-lite, marked, DOMPurify.
+## Artifact sandbox (`apps/sandbox`, vendored at build time, served offline)
+| Package | Purpose |
+|---|---|
+| react, react-dom 19.3 | React artifacts (bundled into one browser script with esbuild; React 19 ships no UMD build) |
+| @babel/standalone 8 | JSX/TSX → JavaScript in the browser |
+| mermaid 12 | Diagrams |
+| chart.js 4 | Chart artifacts |
+| marked 18, dompurify 3 | Markdown rendering, sanitised |
+| @tailwindcss/browser 4 | Tailwind classes in React/HTML artifacts without a build step |
+| esbuild (dev) | Builds the React bundle |
+
+Licences are copied to `apps/sandbox/dist/vendor/licenses/`. The server itself uses only Node's standard library.
 
 ## Backend (`apps/api`, Python 3.12 via uv)
 | Package | Purpose |

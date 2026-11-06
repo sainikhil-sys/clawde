@@ -1,0 +1,96 @@
+:root {
+  color-scheme: light;
+  --fg: #1f1d1a;
+  --muted: #6b665e;
+  --bg: #ffffff;
+  --border: #e4e0d8;
+  --code: #f4f2ee;
+  --error: #b42318;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --fg: #ece9e3;
+  --muted: #a49e93;
+  --bg: #1c1b19;
+  --border: #3a3833;
+  --code: #26251f;
+  --error: #f97066;
+}
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+.clawde-doc {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 1.5rem;
+  line-height: 1.6;
+}
+.clawde-doc pre,
+.clawde-doc code {
+  background: var(--code);
+  border-radius: 4px;
+  font-family: ui-monospace, "Cascadia Code", monospace;
+}
+.clawde-doc pre {
+  padding: 0.75rem;
+  overflow-x: auto;
+}
+.clawde-doc code {
+  padding: 0.1em 0.3em;
+}
+.clawde-doc pre code {
+  padding: 0;
+}
+.clawde-doc table {
+  border-collapse: collapse;
+}
+.clawde-doc th,
+.clawde-doc td {
+  border: 1px solid var(--border);
+  padding: 0.35rem 0.6rem;
+}
+.clawde-doc img {
+  max-width: 100%;
+}
+.clawde-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 1rem;
+  box-sizing: border-box;
+}
+.clawde-center svg {
+  max-width: 100%;
+  height: auto;
+}
+.clawde-chart {
+  padding: 1rem;
+  height: calc(100vh - 2rem);
+}
+.clawde-console {
+  margin: 0;
+  padding: 1rem;
+  font: 0.85rem/1.5 ui-monospace, "Cascadia Code", monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.clawde-console .log-warn {
+  color: #b54708;
+}
+.clawde-console .log-error,
+.clawde-error {
+  color: var(--error);
+}
+.clawde-error {
+  margin: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--error);
+  border-radius: 6px;
+  font: 0.85rem/1.5 ui-monospace, monospace;
+  white-space: pre-wrap;
+}

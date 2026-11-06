@@ -1,0 +1,26 @@
+{
+  "name": "sandbox",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Static server for the artifact runtime: a separate origin with a strict CSP and no network access.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "node server.mjs",
+    "dev": "node build.mjs && node server.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@babel/standalone": "^8.1.1",
+    "@tailwindcss/browser": "^4.3.4",
+    "chart.js": "^4.6.1",
+    "dompurify": "^3.4.17",
+    "marked": "^18.1.3",
+    "mermaid": "^12.3.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

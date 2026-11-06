@@ -26,7 +26,7 @@ Base URL: `http://127.0.0.1:8000`. With the API running, live OpenAPI docs are a
 | POST | `/api/session` | allowed `Origin` | Creates a session, sets cookie, returns `{csrf_token, created_at, expires_at}` (201) |
 | GET | `/api/session` | cookie | Returns the current session's CSRF token (used after a page reload) |
 | DELETE | `/api/session` | cookie + CSRF | Ends the session and clears the cookie (204) |
-| GET | `/api/settings` | cookie | `{network_access_enabled, default_model, memory_enabled, memory_auto_summarise}` |
+| GET | `/api/settings` | cookie | `{network_access_enabled, default_model, memory_enabled, memory_auto_summarise, artifacts_enabled}` |
 | PATCH | `/api/settings` | cookie + CSRF | Partial update; unknown keys → 422; changes are audited |
 | GET | `/api/audit?limit=50&before_id=` | cookie | Newest-first audit events, `{events, next_before_id}` |
 | GET | `/api/models?include_unavailable=false` | cookie | Syncs the registry with all providers, returns `{models, providers}`. Each model has `chat: bool` |
@@ -48,6 +48,12 @@ Base URL: `http://127.0.0.1:8000`. With the API running, live OpenAPI docs are a
 | GET/POST | `/api/projects/{id}/knowledge` | cookie (+ CSRF) | List knowledge files / upload one (multipart `file`; same validation as attachments) |
 | GET | `/api/projects/{id}/search?q=` | cookie | `[{kind: conversation\|knowledge, id, title, snippet}]`, this project only |
 | GET | `/api/projects/{id}/export` | cookie | Zip: `project.json`, `conversations/*.json`, `knowledge/` (+ `knowledge/extracted/*.txt`) |
+| GET/POST | `/api/artifacts?conversation_id=&q=` | cookie (+ CSRF) | List (newest first, with `version_count`) / create `{kind, title, content, language?, conversation_id?, source_message_id?}` |
+| GET/PATCH/DELETE | `/api/artifacts/{id}` | cookie (+ CSRF) | Read (with current `content`) / rename `{title}` / delete (audited) |
+| PUT | `/api/artifacts/{id}/content` | cookie + CSRF | `{content, note?}` → new version → `{artifact, changed}` (`changed: false` when identical) |
+| GET | `/api/artifacts/{id}/versions[/{n}]` | cookie | Version list / one version with content |
+| POST | `/api/artifacts/{id}/versions/{n}/restore` | cookie + CSRF | Copies version n forward as a new version |
+| GET | `/api/artifacts/{id}/download?version=` | cookie | Source as `application/octet-stream` attachment (`CSP: sandbox`) |
 | GET/POST | `/api/memories?kind=&project_id=&conversation_id=&q=` | cookie (+ CSRF) | List (pinned, then newest; best match first with `q`) / create `{kind: preference\|project\|knowledge\|temporary, content, title?, importance 1-5, pinned?, project_id?, conversation_id?, expires_in_hours?, source_message_id?}` (audited) |
 | GET | `/api/memories/stats` | cookie | `{counts by kind, total, embedding_model}` |
 | GET/PATCH/DELETE | `/api/memories/{id}` | cookie (+ CSRF) | Read / update `{title?, content?, importance?, pinned?, expires_in_hours?, clear_expiry?}` / delete (audited) |

@@ -137,5 +137,18 @@ expired rows are hidden and purged at startup), `embeddings` JSON (one vector pe
 
 - `messages.memory_ids` JSON: ids of the memories that were in context for an assistant reply.
 
-Planned tables (artifacts, models, agent runs, evaluations, research
+## Revision `0007_artifacts` (Milestone 9)
+
+### artifacts
+`id`, `identifier` (stable name the model reuses to update it, unique per conversation by convention), `title`,
+`kind` (html|react|svg|markdown|mermaid|chart|javascript|code), `language` (code only), `conversation_id` FK →
+conversations `ON DELETE CASCADE` (null for artifacts made on the Artifacts page), `current_version`,
+`created_at`, `updated_at` (indexed).
+
+### artifact_versions
+`id`, `artifact_id` FK → artifacts `ON DELETE CASCADE`, `version` (unique per artifact), `content`, `source`
+(model|user|restore), `message_id` (reply that produced it; indexed, no FK), `note`, `created_at`. Versions are
+never modified; edits and restores append.
+
+Planned tables (models, agent runs, evaluations, research
 runs) are listed in `docs/02-architecture.md` §5 and arrive with their milestones.

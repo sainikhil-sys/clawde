@@ -58,9 +58,11 @@ async def build_turn(
     indexes_dir: Path | None = None,
     conversation: Conversation | None = None,
     use_memory: bool = False,
+    preamble: str = "",
 ) -> TurnContext:
     """`project`: the conversation's project. Its instructions lead the context and its knowledge files are
-    searched for passages relevant to the latest message. `use_memory`: recall saved memory in scope for
+    searched for passages relevant to the latest message. `preamble`: app-level instructions sent first
+    (e.g. how to write artifacts). `use_memory`: recall saved memory in scope for
     `conversation` (see services/memory for the scope rules)."""
     links = await attachments.links_for_messages(db, [m.id for m in rows if m.role == "user"])
     sees_images = "vision" in (model.capabilities or [])
@@ -169,7 +171,7 @@ async def build_turn(
         )
 
     def assemble(summary: str) -> tuple[list[ChatMessage], int]:
-        system = [t for t in (instructions, memory_text, summary, doc_text) if t]
+        system = [t for t in (preamble, instructions, memory_text, summary, doc_text) if t]
         full = [ChatMessage(role="system", content=t) for t in system] + messages
         return fit_history(
             _merge_system(full), context_length=params.context_length, reserve_for_output=params.max_tokens

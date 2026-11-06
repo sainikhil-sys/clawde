@@ -24,6 +24,8 @@ class AppSettings(BaseModel):
     memory_enabled: bool = True
     #: Summarise a conversation into memory when it grows past the model's context window.
     memory_auto_summarise: bool = True
+    #: Tell models they can create artifacts (Milestone 9).
+    artifacts_enabled: bool = True
 
 
 class AppSettingsPatch(BaseModel):
@@ -33,6 +35,7 @@ class AppSettingsPatch(BaseModel):
     default_model: str | None = Field(default=None, max_length=200)
     memory_enabled: bool | None = None
     memory_auto_summarise: bool | None = None
+    artifacts_enabled: bool | None = None
 
 
 async def load(db: AsyncSession) -> AppSettings:

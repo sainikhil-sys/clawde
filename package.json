@@ -12,6 +12,9 @@
     "lint:api": "uv run ruff check . && uv run ruff format --check .",
     "typecheck:api": "uv run mypy",
     "test:api": "uv run pytest",
-    "check": "pnpm lint:api && pnpm typecheck:api && pnpm test:api && pnpm lint:web && pnpm typecheck:web && pnpm test:web"
+    "check": "pnpm lint:api && pnpm typecheck:api && pnpm test:api && pnpm lint:web && pnpm typecheck:web && pnpm test:web && pnpm test:sandbox",
+    "dev:sandbox": "pnpm --filter sandbox dev",
+    "build:sandbox": "pnpm --filter sandbox build",
+    "test:sandbox": "pnpm --filter sandbox build && pnpm --filter sandbox test"
   }
 }

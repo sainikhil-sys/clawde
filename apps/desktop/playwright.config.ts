@@ -1,6 +1,6 @@
 /**
  * End-to-end tests against the real stack: production build of the web UI, the real API with a throwaway
- * data folder, and the local Ollama server. Ports 3100/8100 and a separate build folder keep it isolated
+ * data folder, the artifact sandbox, and the local Ollama server. Ports 3100/8100/3191 and a separate build folder keep it isolated
  * from a running development setup. Uses the Microsoft Edge (or Chrome) already installed on the machine,
  * so no browser download is needed.
  *
@@ -13,6 +13,7 @@ import path from "node:path";
 
 const WEB_PORT = 3100;
 const API_PORT = 8100;
+const SANDBOX_PORT = 3191;
 const repoRoot = path.resolve(__dirname, "../..");
 const dataDir = process.env.CLAWDE_E2E_DATA_DIR ?? mkdtempSync(path.join(tmpdir(), "clawde-e2e-"));
 
@@ -29,6 +30,17 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: [
+    {
+      command: "pnpm --filter sandbox dev",
+      cwd: repoRoot,
+      url: `http://127.0.0.1:${SANDBOX_PORT}/runtime.html`,
+      timeout: 60_000,
+      reuseExistingServer: false,
+      env: {
+        CLAWDE_SANDBOX_PORT: String(SANDBOX_PORT),
+        CLAWDE_SANDBOX_FRAME_ANCESTORS: `http://127.0.0.1:${WEB_PORT}`,
+      },
+    },
     {
       command: "uv run clawde-api serve",
       cwd: repoRoot,
@@ -50,6 +62,7 @@ export default defineConfig({
       env: {
         NEXT_DIST_DIR: ".next-e2e",
         NEXT_PUBLIC_CLAWDE_API_URL: `http://127.0.0.1:${API_PORT}`,
+        NEXT_PUBLIC_CLAWDE_SANDBOX_URL: `http://127.0.0.1:${SANDBOX_PORT}`,
         NEXT_TELEMETRY_DISABLED: "1",
       },
     },

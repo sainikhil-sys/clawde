@@ -104,7 +104,7 @@ async def test_second_turn_sends_history(client: httpx.AsyncClient, provider: Fa
     conv_id = await new_conversation(client, token)
     await send(client, token, conv_id, content="first")
     await send(client, token, conv_id, content="second")
-    sent = provider.received[1]
+    sent = [m for m in provider.received[1] if m.role != "system"]
     assert [(m.role, m.content) for m in sent] == [
         ("user", "first"),
         ("assistant", "Hello, world!"),

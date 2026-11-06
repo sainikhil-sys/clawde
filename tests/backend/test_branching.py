@@ -52,7 +52,7 @@ async def test_edit_creates_branch_and_keeps_original(
     edited = d["messages"][2]
     assert edited["sibling_ids"] == [followup_id, edited["id"]]
     # The model saw history up to the edit point, not the replaced message.
-    assert [m.content for m in provider.received[-1]] == [
+    assert [m.content for m in provider.received[-1] if m.role != "system"] == [
         "first question",
         "Hello, world!",
         "follow up, rephrased",
@@ -78,7 +78,7 @@ async def test_editing_the_first_message(client: httpx.AsyncClient, provider: Fa
     d = await detail(client, conv_id)
     assert contents(d)[0] == ("user", "v2")
     assert len(d["messages"][0]["sibling_ids"]) == 2
-    assert provider.received[-1][0].content == "v2"
+    assert next(m for m in provider.received[-1] if m.role != "system").content == "v2"
 
 
 async def test_regenerate_adds_alternative_reply(client: httpx.AsyncClient, provider: FakeProvider) -> None:
@@ -97,7 +97,7 @@ async def test_regenerate_adds_alternative_reply(client: httpx.AsyncClient, prov
     assert contents(d) == [("user", "tell me a joke"), ("assistant", "a different joke")]
     assert d["messages"][1]["sibling_ids"][0] == old_id
     assert len(d["messages"][1]["sibling_ids"]) == 2
-    assert [m.content for m in provider.received[-1]] == ["tell me a joke"]
+    assert [m.content for m in provider.received[-1] if m.role != "system"] == ["tell me a joke"]
 
 
 async def test_retry_after_error(client: httpx.AsyncClient, provider: FakeProvider) -> None:

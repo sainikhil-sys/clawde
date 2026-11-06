@@ -128,7 +128,9 @@ async def test_project_chat_uses_instructions_and_knowledge(
     # Chats outside the project see none of it.
     other = (await client.post("/api/conversations", json={}, headers=csrf_headers(token))).json()["id"]
     await send(client, token, other, content="How do I restart billing?")
-    assert system_text(provider) == ""
+    assert "billing" not in system_text(provider).lower() and "Instructions from the user" not in system_text(
+        provider
+    )
 
 
 async def test_projects_are_isolated(client: httpx.AsyncClient, provider: FakeProvider) -> None:

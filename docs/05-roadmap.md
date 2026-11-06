@@ -16,7 +16,7 @@ chat is model-independent from day one. M11 then builds the full Model Library U
 | 6 | Files & documents | Upload validation (size/type/magic), extraction for all listed types, previews, status + errors, chunking, embeddings, chat-with-file | ✅ Done: see progress log |
 | 7 | Projects | Project CRUD, instructions, knowledge, scoped chats, per-project FAISS, search, export/delete | ✅ Done: see progress log |
 | 8 | Memory & retrieval | 5 memory kinds, CRUD/inspect UI, ranking, summarisation, context budgeting | ✅ Done: see progress log |
-| 9 | Artifacts | Sandbox origin server, iframe runtime, all artifact types, editor, versions, diff, fullscreen, export | 🧪 security tests: artifact cannot read parent cookies/DOM or call API |
+| 9 | Artifacts | Sandbox origin server, iframe runtime, all artifact types, editor, versions, diff, fullscreen, export | ✅ Done: see progress log |
 | 10 | Agents & permissions | Tool registry, 8 tools, planner/executor, approvals UI, retry, cancel, history, Docker + fallback sandbox | 🧪 denied tool never runs; write outside workspace blocked; cancel mid-run |
 | 11 | Model management | Model Library UI, llama.cpp + Transformers adapters, import/download/remove, metadata/licence/fit, behaviour profiles, router, RAM/GPU monitor, eval harness v1 (incl. refusal behaviour) | 🧪 switch models mid-conversation; router picks capable model that fits RAM |
 | 12 | Research Studio | Datasets, tokenizer lab, tiny-transformer training, LoRA fine-tune on 0.5B model, logs (SSE), checkpoints, adapters, benchmarks, comparison | 🧪 a real (tiny) training run completes and is tracked; UI marks "training" vs "inference" clearly |
@@ -288,6 +288,53 @@ Fixed during verification:
 - A hydration error on the Memory page came from a stale dev server render of the old sidebar; restarting the dev
   server fixed it (no code change).
 
+### Milestone 9: artifacts (2026-11-07)
+Built:
+- Sandbox (`apps/sandbox`): a small Node static server on its own port (3901, loopback only) serving the artifact
+  runtime and vendored libraries (React 19 bundled with esbuild, Babel standalone, Mermaid, Marked, DOMPurify,
+  Chart.js, Tailwind's browser build). The runtime page's CSP has `connect-src 'none'` and no external sources,
+  `frame-ancestors` limited to the web UI, and the server refuses traversal and non-GET methods.
+- Isolation: previews load in `<iframe sandbox="allow-scripts">` (no `allow-same-origin`), so the document has an
+  opaque origin with no cookies or storage, cannot touch the app's DOM, cannot navigate the app, and cannot make
+  network requests. The app talks to it only through validated `postMessage` (render request in; ready /
+  rendered / error / blocked out). The app now sends its own CSP too (frames only the sandbox, connects only to
+  itself and the API).
+- Types: HTML (with CSS/JS), React (JSX/TSX, hooks, Tailwind classes), SVG, Markdown (sanitised), Mermaid,
+  Chart.js charts (JSON config), JavaScript (console output shown), and code in other languages (shown, not run).
+  Well-known CDN script URLs in HTML artifacts are pointed at the vendored copies; anything else is blocked and
+  reported.
+- Data: `artifacts` + immutable `artifact_versions` (migration `0007`). Model replies create artifacts from
+  `<artifact>` blocks (instructions are added to the system prompt unless turned off); writing the same
+  identifier again adds a version. Editing, restoring (copies an old version forward) and "Open as artifact" on
+  any code block add versions too; unchanged content never creates an empty version. Deleting a conversation
+  deletes its artifacts; deleting an artifact is audited.
+- UI: artifact cards in replies (with streaming state); a side panel that opens with the artifact a reply just
+  made; Preview / Code (CodeMirror, live preview of unsaved edits) / History (view, line diff of changes or against
+  current, restore); copy, download (sent as a file, never rendered on the API origin), full screen; Artifacts page
+  with search, create-from-starter, delete, and the setting to turn model artifacts off.
+
+Verified:
+- 196 backend tests (parsing, versions, restore, download headers, cascade, settings, extraction failure keeps the
+  reply, stopped replies make nothing), 4 sandbox server tests (CSP, traversal, methods), 82 frontend tests.
+- End-to-end in Edge (the acceptance check): an artifact running in the preview gets an opaque origin; reading
+  `parent.document`, `top.location`, local storage and IndexedDB throws; `fetch` to the API and a WebSocket are
+  blocked by the CSP (and reported); and it cannot navigate the app. React (with state), Mermaid, Chart.js and
+  Markdown render offline; Markdown with an inline `onerror` handler is sanitised; edit → diff → restore works.
+- With llama3.2: asked for an HTML page artifact, the card appeared and the panel opened showing it (4 of 4 runs
+  after the parser fix below). "Open as artifact" on a code block from llama3.2 works too.
+
+Fixed during verification:
+- llama3.2 sometimes leaves out `</artifact>`: either the content is a closed code fence, or raw HTML follows
+  and the reply just ends. Both are now accepted in replies that finished normally (HTML/SVG stop at their end tag
+  so trailing prose stays out); stopped or failed replies are never parsed. Server and client apply the same
+  rule, with tests on both sides.
+- React artifacts from models often `import "./App.css"`: stylesheet imports are now skipped with a notice instead
+  of failing.
+- The README status line was stale (it still said Milestone 5).
+
+Notes: the in-app browser used during development blocks the cross-origin sandbox frame, so preview behaviour was
+verified in Edge through Playwright.
+
 ## Known limitations (current)
 - CPU-only inference: 7B models run at about 5 tok/s, so small models are the default for interactivity.
 - Fine-tuning is limited to small base models; QLoRA and 7B training are out of scope without an NVIDIA GPU.
@@ -296,3 +343,6 @@ Fixed during verification:
 - Memory matching is by keywords until an embedding model is installed; memory vectors are compared exactly
   (no index), which is fine for thousands of memories but not millions.
 - Summaries are only as accurate as the model that writes them; they are labelled with that model.
+- Whether a model writes artifacts in the right format depends on the model; small models sometimes don't.
+  "Open as artifact" on a code block always works. Artifacts can't load anything from the internet by design.
+- The app's CSP allows inline scripts (pages are prerendered, so per-request nonces aren't available).

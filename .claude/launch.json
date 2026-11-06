@@ -4,16 +4,36 @@
     {
       "name": "web",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "desktop", "dev"],
+      "runtimeArgs": [
+        "--filter",
+        "desktop",
+        "dev"
+      ],
       "port": 3000,
       "url": "http://127.0.0.1:3000"
     },
     {
       "name": "api",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "clawde-api", "serve", "--reload"],
+      "runtimeArgs": [
+        "run",
+        "clawde-api",
+        "serve",
+        "--reload"
+      ],
       "port": 8000,
       "url": "http://127.0.0.1:8000"
+    },
+    {
+      "name": "sandbox",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "sandbox",
+        "dev"
+      ],
+      "port": 3901,
+      "url": "http://127.0.0.1:3901"
     }
   ]
 }

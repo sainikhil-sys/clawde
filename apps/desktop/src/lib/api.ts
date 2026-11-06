@@ -184,6 +184,8 @@ export type AppSettings = {
   memory_enabled: boolean;
   /** Summarise a conversation into memory when it outgrows the context window. */
   memory_auto_summarise: boolean;
+  /** Tell models they can create artifacts. */
+  artifacts_enabled: boolean;
 };
 
 export type MessageStatus = "streaming" | "complete" | "error" | "cancelled";
@@ -205,6 +207,8 @@ export type ChatMessage = {
   attachments?: AttachmentBrief[];
   /** Saved memories that were in context for this reply (ids may refer to since-deleted memories). */
   memory_ids?: string[] | null;
+  /** Artifacts this reply created or updated, in the order they appear in its text. */
+  artifacts?: ArtifactRef[];
 };
 
 export type AttachmentKind = "pdf" | "docx" | "xlsx" | "csv" | "json" | "markdown" | "text" | "code" | "image";
@@ -236,6 +240,42 @@ export type DocumentUse = {
     total_excerpts: number;
     image_visible: boolean | null;
   }[];
+};
+
+export const ARTIFACT_KINDS = ["html", "react", "svg", "markdown", "mermaid", "chart", "javascript", "code"] as const;
+export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
+export type ArtifactRef = { id: string; identifier: string; title: string; kind: ArtifactKind; version: number };
+export type Artifact = {
+  id: string;
+  identifier: string;
+  title: string;
+  kind: ArtifactKind;
+  language: string | null;
+  conversation_id: string | null;
+  current_version: number;
+  created_at: string;
+  updated_at: string;
+  version_count: number;
+  conversation_title: string | null;
+};
+export type ArtifactDetail = Artifact & { content: string };
+export type ArtifactVersion = {
+  version: number;
+  source: "model" | "user" | "restore";
+  message_id: string | null;
+  note: string;
+  created_at: string;
+  chars: number;
+};
+export type ArtifactVersionDetail = ArtifactVersion & { content: string };
+export type ArtifactSave = { artifact: ArtifactDetail; changed: boolean };
+export type ArtifactCreate = {
+  kind: ArtifactKind;
+  title: string;
+  content: string;
+  language?: string;
+  conversation_id?: string;
+  source_message_id?: string;
 };
 
 export const MEMORY_KINDS = ["preference", "summary", "project", "knowledge", "temporary"] as const;
@@ -379,7 +419,13 @@ export type TurnEvent =
   | { event: "token"; data: { text: string } }
   | {
       event: "done";
-      data: { message: ChatMessage; finish_reason: string; total_duration_ms: number | null; json_valid?: boolean };
+      data: {
+        message: ChatMessage;
+        finish_reason: string;
+        total_duration_ms: number | null;
+        json_valid?: boolean;
+        artifacts?: ArtifactRef[];
+      };
     }
   | { event: "error"; data: { code: string; message: string; message_id: string } };
 
@@ -469,6 +515,40 @@ export const api = {
     return { blob: await resp.blob(), filename };
   },
   deleteTemplate: (id: string) => apiRequest<void>(`/api/templates/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  artifacts: (filter: { conversationId?: string; q?: string } = {}, signal?: AbortSignal) => {
+    const q = new URLSearchParams();
+    if (filter.conversationId) q.set("conversation_id", filter.conversationId);
+    if (filter.q?.trim()) q.set("q", filter.q.trim());
+    const qs = q.toString();
+    return apiRequest<Artifact[]>(`/api/artifacts${qs ? `?${qs}` : ""}`, { signal });
+  },
+  artifact: (id: string, signal?: AbortSignal) =>
+    apiRequest<ArtifactDetail>(`/api/artifacts/${encodeURIComponent(id)}`, { signal }),
+  createArtifact: (body: ArtifactCreate) => apiRequest<ArtifactDetail>("/api/artifacts", { method: "POST", body }),
+  renameArtifact: (id: string, title: string) =>
+    apiRequest<ArtifactDetail>(`/api/artifacts/${encodeURIComponent(id)}`, { method: "PATCH", body: { title } }),
+  saveArtifact: (id: string, content: string) =>
+    apiRequest<ArtifactSave>(`/api/artifacts/${encodeURIComponent(id)}/content`, {
+      method: "PUT",
+      body: { content },
+    }),
+  artifactVersions: (id: string, signal?: AbortSignal) =>
+    apiRequest<ArtifactVersion[]>(`/api/artifacts/${encodeURIComponent(id)}/versions`, { signal }),
+  artifactVersion: (id: string, version: number, signal?: AbortSignal) =>
+    apiRequest<ArtifactVersionDetail>(`/api/artifacts/${encodeURIComponent(id)}/versions/${version}`, { signal }),
+  restoreArtifactVersion: (id: string, version: number) =>
+    apiRequest<ArtifactSave>(`/api/artifacts/${encodeURIComponent(id)}/versions/${version}/restore`, {
+      method: "POST",
+    }),
+  deleteArtifact: (id: string) => apiRequest<void>(`/api/artifacts/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  downloadArtifact: async (id: string, version?: number) => {
+    const resp = await apiFetch(
+      `/api/artifacts/${encodeURIComponent(id)}/download${version ? `?version=${version}` : ""}`,
+    );
+    const disposition = resp.headers.get("Content-Disposition") ?? "";
+    const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? "artifact.txt";
+    return { blob: await resp.blob(), filename };
+  },
   memories: (filter: MemoryFilter = {}, signal?: AbortSignal) => {
     const q = new URLSearchParams();
     if (filter.kind) q.set("kind", filter.kind);

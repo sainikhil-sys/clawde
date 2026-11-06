@@ -3,14 +3,16 @@
 import { AlertCircle, BookmarkPlus, ChevronLeft, ChevronRight, Pencil, Play, RefreshCw, RotateCcw } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import type { AttachmentBrief, ChatMessage } from "@/lib/api";
+import { ArtifactCard } from "@/components/artifacts/artifact-card";
+import type { ArtifactRef, AttachmentBrief, ChatMessage } from "@/lib/api";
+import { splitArtifacts } from "@/lib/artifact-blocks";
 import { cn } from "@/lib/utils";
 
 import { MemoryUsed } from "@/components/memory/memory-used";
 
 import { AttachmentChip, attachmentDetails } from "./attachments";
 import { CopyButton } from "./copy-button";
-import { Markdown } from "./markdown";
+import { CodeBlockActions, Markdown } from "./markdown";
 import { shortModelName } from "./model-select";
 
 export type MessageActions = {
@@ -21,6 +23,10 @@ export type MessageActions = {
   onOpenAttachment: (attachment: AttachmentBrief) => void;
   /** Save (part of) a message to memory. */
   onRemember?: (message: ChatMessage) => void;
+  /** Open a saved artifact in the side panel. */
+  onOpenArtifact?: (ref: ArtifactRef) => void;
+  /** Turn a fenced code block from a reply into an artifact. */
+  onCodeToArtifact?: (message: ChatMessage, language: string | undefined, code: string) => void;
 };
 
 const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
@@ -257,7 +263,7 @@ function AssistantMessage({
         </p>
       ) : (
         <div className={cn(streaming && "streaming-caret")}>
-          <Markdown content={message.content} />
+          <ReplyContent message={message} streaming={streaming} actions={actions} />
         </div>
       )}
 
@@ -317,5 +323,46 @@ function AssistantMessage({
         </span>
       </div>
     </article>
+  );
+}
+
+/** A reply's text with its artifact blocks replaced by cards. */
+function ReplyContent({
+  message,
+  streaming,
+  actions,
+}: {
+  message: ChatMessage;
+  streaming: boolean;
+  actions: MessageActions;
+}) {
+  const segments = splitArtifacts(message.content, message.status === "complete");
+  const persisted = !message.id.startsWith("local-") && !streaming;
+  const codeActions = {
+    onOpenAsArtifact:
+      persisted && actions.onCodeToArtifact
+        ? (language: string | undefined, code: string) => actions.onCodeToArtifact?.(message, language, code)
+        : undefined,
+  };
+  return (
+    <CodeBlockActions.Provider value={codeActions}>
+      {segments.map((s, i) =>
+        s.type === "text" ? (
+          s.text.trim() ? (
+            <Markdown key={i} content={s.text} />
+          ) : null
+        ) : (
+          <ArtifactCard
+            key={i}
+            title={s.title}
+            kind={s.kind}
+            complete={s.complete}
+            streaming={streaming}
+            artifact={s.complete ? message.artifacts?.[s.index] : undefined}
+            onOpen={actions.onOpenArtifact}
+          />
+        ),
+      )}
+    </CodeBlockActions.Provider>
   );
 }

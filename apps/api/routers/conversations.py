@@ -8,11 +8,14 @@ import structlog
 from fastapi import APIRouter, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.artifacts.prompt import ARTIFACT_INSTRUCTIONS
 from core.inference.provider import ProviderError
 from core.inference.types import GenerationParams
 from core.orchestrator.chat_turn import message_payload, stream_turn
 from models.registry import service as registry
+from services.artifacts import service as artifacts
 from services.attachments import service as attachments
 from services.audit import service as audit
 from services.conversation import service as conversations
@@ -90,6 +93,8 @@ class MessageOut(BaseModel):
     attachments: list[AttachmentBrief] = []
     #: Saved memories that were in context for this reply (may include since-deleted ids).
     memory_ids: list[str] | None = None
+    #: Artifacts this reply created or updated: [{id, identifier, title, kind, version}].
+    artifacts: list[dict[str, Any]] = []
 
 
 class ConversationDetail(ConversationOut):
@@ -165,20 +170,27 @@ async def _get_conversation(db: DbDep, conversation_id: str) -> Conversation:
     return conv
 
 
-def _message_out(m: Message, tree: MessageTree, links: dict[str, list[Attachment]]) -> MessageOut:
+def _message_out(
+    m: Message,
+    tree: MessageTree,
+    links: dict[str, list[Attachment]],
+    made: dict[str, list[dict[str, Any]]],
+) -> MessageOut:
     out = MessageOut.model_validate(m)
     out.sibling_ids = [s.id for s in tree.siblings(m)]
     out.attachments = [AttachmentBrief.model_validate(a) for a in links.get(m.id, [])]
+    out.artifacts = made.get(m.id, [])
     return out
 
 
 async def _detail(db: DbDep, conv: Conversation) -> ConversationDetail:
     path, tree = await conversations.active_path(db, conv)
     links = await attachments.links_for_messages(db, [m.id for m in path])
+    made = await artifacts.refs_for_messages(db, [m.id for m in path if m.role == "assistant"])
     return ConversationDetail.model_validate(
         {
             **ConversationOut.model_validate(conv).model_dump(),
-            "messages": [_message_out(m, tree, links) for m in path],
+            "messages": [_message_out(m, tree, links, made) for m in path],
         }
     )
 
@@ -280,6 +292,7 @@ async def _start_stream(
         indexes_dir=settings.indexes_dir,
         conversation=conv,
         use_memory=prefs.memory_enabled,
+        preamble=ARTIFACT_INSTRUCTIONS if prefs.artifacts_enabled else "",
     )
     assistant.memory_ids = turn.memory_ids or None
     await db.commit()
@@ -311,8 +324,14 @@ async def _start_stream(
         assistant_message_id=assistant_id,
         start_data=start,
         initial_content=initial_content,
+        on_complete=_extract_artifacts,
     )
     return EventStreamResponse(events, on_close=on_close)
+
+
+async def _extract_artifacts(db: AsyncSession, msg: Message) -> dict[str, Any]:
+    refs = await artifacts.extract_from_message(db, msg)
+    return {"artifacts": [r.as_dict() for r in refs]}
 
 
 def schedule_summary(

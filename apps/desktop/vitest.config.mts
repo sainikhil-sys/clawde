@@ -12,5 +12,7 @@ export default defineConfig({
     setupFiles: ["./vitest.setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
     css: false,
+    // Interaction-heavy jsdom tests can exceed 5 s when the whole suite runs on a busy machine.
+    testTimeout: 20_000,
   },
 });

@@ -7,6 +7,7 @@ import { Paperclip } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { LogoMark } from "@/components/brand/logo";
+import { ArtifactViewer } from "@/components/artifacts/artifact-viewer";
 import { ConversationMenu } from "@/components/conversation/conversation-menu";
 import { ConversationMemory } from "@/components/memory/conversation-memory";
 import { MemoryDialog } from "@/components/memory/memory-dialog";
@@ -21,7 +22,15 @@ import {
   useModels,
   useUpdateSettings,
 } from "@/hooks/use-chat";
-import { api, ApiError, ApiUnreachableError, type AttachmentBrief, type ChatMessage } from "@/lib/api";
+import {
+  api,
+  ApiError,
+  ApiUnreachableError,
+  type ArtifactRef,
+  type AttachmentBrief,
+  type ChatMessage,
+} from "@/lib/api";
+import { kindForLanguage } from "@/lib/artifact-blocks";
 import { dismissFailedTurn, mergeLiveTurn, startTurn, stopTurn, type LiveTurn } from "@/lib/chat-store";
 
 import { AttachmentChip, AttachmentPreview, formatBytes } from "./attachments";
@@ -61,6 +70,22 @@ export function ChatView({
   const [draft, setDraft] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
   const [remembering, setRemembering] = useState<ChatMessage | null>(null);
+  const [openArtifact, setOpenArtifact] = useState<ArtifactRef | null>(null);
+  // Open the artifact a reply just produced (once per reply).
+  const liveRefs = live?.assistant.artifacts;
+  const lastRef = liveRefs?.at(-1);
+  const marker = lastRef ? `${live?.assistant.id}:${lastRef.id}:${lastRef.version}` : null;
+  const [autoOpened, setAutoOpened] = useState<string | null>(null);
+  if (lastRef && marker !== autoOpened) {
+    setAutoOpened(marker);
+    setOpenArtifact(lastRef);
+  }
+  // Close the panel when switching conversations.
+  const [panelFor, setPanelFor] = useState(conversationId);
+  if (panelFor !== conversationId) {
+    setPanelFor(conversationId);
+    setOpenArtifact(null);
+  }
   const [pickedModel, setPickedModel] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
@@ -169,6 +194,18 @@ export function ChatView({
     },
     onOpenAttachment: (attachment) => setPreview(attachment),
     onRemember: conversationId ? (message) => setRemembering(message) : undefined,
+    onOpenArtifact: (ref) => setOpenArtifact(ref),
+    onCodeToArtifact: (message, language, code) => {
+      const { kind, language: lang } = kindForLanguage(language);
+      const title = (/<title>([^<]{1,80})<\/title>/i.exec(code)?.[1] ?? `${language ?? "Code"} snippet`).trim();
+      api
+        .createArtifact({ kind, language: lang ?? undefined, title, content: code, source_message_id: message.id })
+        .then((art) => {
+          void queryClient.invalidateQueries({ queryKey: ["artifacts"] });
+          setOpenArtifact({ id: art.id, identifier: art.identifier, title: art.title, kind: art.kind, version: 1 });
+        })
+        .catch((err) => setSendError(errorText(err, "Couldn't create the artifact.")));
+    },
     onSelectSibling: (messageId) => {
       if (!conversationId) return;
       api
@@ -202,209 +239,232 @@ export function ChatView({
   const conv = conversation.data;
 
   return (
-    <div
-      className="relative flex h-full flex-col"
-      onDragOver={(e) => {
-        if (!canAttach || !e.dataTransfer.types.includes("Files")) return;
-        e.preventDefault();
-        setDragging(true);
-      }}
-      onDragLeave={(e) => {
-        if (e.currentTarget === e.target) setDragging(false);
-      }}
-      onDrop={(e) => {
-        if (!canAttach) return;
-        e.preventDefault();
-        setDragging(false);
-        if (e.dataTransfer.files.length) files.add(e.dataTransfer.files);
-      }}
-    >
-      {dragging && (
-        <div className="pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-background/80 text-sm font-medium">
-          Drop files to attach them
-        </div>
-      )}
-      {conv && !notFound && (
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4 sm:px-6">
-          {project.data && (
-            <>
-              <Link
-                href={`/projects/${project.data.id}`}
-                className="max-w-40 shrink-0 truncate text-sm text-muted-foreground hover:text-foreground hover:underline"
-                title={`Project: ${project.data.name}`}
-              >
-                {project.data.name}
-              </Link>
-              <span className="text-muted-foreground" aria-hidden="true">
-                /
-              </span>
-            </>
-          )}
-          <h1 className="min-w-0 flex-1 truncate text-sm font-medium" title={conv.title}>
-            {conv.title}
-          </h1>
-          {conv.archived && (
-            <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">Archived</span>
-          )}
-          <ConversationMemory conversationId={conv.id} modelId={modelId} disabled={generating} />
-          <ConversationMenu conversation={conv} onDeleted={() => router.push("/")} />
-        </header>
-      )}
+    <div className="flex h-full min-w-0">
       <div
-        ref={scrollRef}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        className="relative flex h-full min-w-0 flex-1 flex-col"
+        onDragOver={(e) => {
+          if (!canAttach || !e.dataTransfer.types.includes("Files")) return;
+          e.preventDefault();
+          setDragging(true);
         }}
-        className="min-h-0 flex-1 overflow-y-auto"
+        onDragLeave={(e) => {
+          if (e.currentTarget === e.target) setDragging(false);
+        }}
+        onDrop={(e) => {
+          if (!canAttach) return;
+          e.preventDefault();
+          setDragging(false);
+          if (e.dataTransfer.files.length) files.add(e.dataTransfer.files);
+        }}
       >
-        <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
-          {notFound ? (
-            <div className="py-16 text-center">
-              <h1 className="font-heading text-2xl font-medium">Conversation not found</h1>
-              <p className="mt-2 text-muted-foreground">It may have been deleted.</p>
-              <Link href="/" className="mt-4 inline-block text-sm font-medium text-primary hover:underline">
-                Start a new chat
-              </Link>
-            </div>
-          ) : conversationId && conversation.isPending && !live ? (
-            <p className="py-16 text-center text-sm text-muted-foreground" role="status">
-              Loading conversation…
-            </p>
-          ) : conversation.isError ? (
-            <p className="py-16 text-center text-sm text-destructive" role="alert">
-              Couldn&apos;t load this conversation: {conversation.error.message}
-            </p>
-          ) : empty ? (
-            <EmptyChat projectName={project.data?.name} />
-          ) : (
-            <>
-              {live && live.historyDropped > 0 && (
-                <p className="mb-6 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
-                  {live.historyDropped} older message{live.historyDropped === 1 ? " was" : "s were"} left out to fit the
-                  model&apos;s context window
-                  {live.memory?.summary_used ? "; the conversation’s summary stood in for them." : "."}
-                </p>
-              )}
-              <MessageList messages={messages} phase={live?.phase} busy={generating || !!blocked} actions={actions} />
-              {docNote && (
-                <p className="mt-3 text-xs text-muted-foreground" role="status">
-                  {docNote}
-                </p>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="mx-auto w-full max-w-3xl px-4 pb-4 sm:px-6">
-        <StatusNotice
-          apiUp={apiUp}
-          apiPending={health.isPending}
-          modelsError={models.isError}
-          providerMessage={providerDown?.message ?? null}
-          noModels={apiUp && models.isSuccess && chatModels.length === 0}
-          onRetry={() => void models.refetch()}
-        />
-        {sendError && (
-          <p className="mb-2 text-sm text-destructive" role="alert">
-            {sendError}
-          </p>
+        {dragging && (
+          <div className="pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-background/80 text-sm font-medium">
+            Drop files to attach them
+          </div>
         )}
-        <Composer
-          value={draft}
-          onChange={setDraft}
-          onSend={() => void send()}
-          onStop={() => conversationId && stopTurn(conversationId)}
-          generating={generating}
-          canSend={!blocked && !!modelId && !notFound}
-          disabledReason={blocked}
-          autoFocus
-          onPasteFiles={canAttach ? files.add : undefined}
-          above={
-            files.files.length > 0 ? (
-              <div className="flex flex-wrap gap-1.5 px-3 pt-3" aria-label="Files to send">
-                {files.files.map((f) => (
-                  <AttachmentChip
-                    key={f.localId}
-                    name={f.name}
-                    kind={f.attachment?.kind}
-                    detail={`${formatBytes(f.size)} · ready`}
-                    state={f.phase}
-                    progress={f.progress}
-                    error={f.error}
-                    onRemove={() => files.remove(f.localId)}
-                    onOpen={f.attachment ? () => setPreview(f.attachment!) : undefined}
-                  />
-                ))}
+        {conv && !notFound && (
+          <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4 sm:px-6">
+            {project.data && (
+              <>
+                <Link
+                  href={`/projects/${project.data.id}`}
+                  className="max-w-40 shrink-0 truncate text-sm text-muted-foreground hover:text-foreground hover:underline"
+                  title={`Project: ${project.data.name}`}
+                >
+                  {project.data.name}
+                </Link>
+                <span className="text-muted-foreground" aria-hidden="true">
+                  /
+                </span>
+              </>
+            )}
+            <h1 className="min-w-0 flex-1 truncate text-sm font-medium" title={conv.title}>
+              {conv.title}
+            </h1>
+            {conv.archived && (
+              <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">Archived</span>
+            )}
+            <ConversationMemory conversationId={conv.id} modelId={modelId} disabled={generating} />
+            <ConversationMenu conversation={conv} onDeleted={() => router.push("/")} />
+          </header>
+        )}
+        <div
+          ref={scrollRef}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          }}
+          className="min-h-0 flex-1 overflow-y-auto"
+        >
+          <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
+            {notFound ? (
+              <div className="py-16 text-center">
+                <h1 className="font-heading text-2xl font-medium">Conversation not found</h1>
+                <p className="mt-2 text-muted-foreground">It may have been deleted.</p>
+                <Link href="/" className="mt-4 inline-block text-sm font-medium text-primary hover:underline">
+                  Start a new chat
+                </Link>
               </div>
-            ) : null
-          }
-          toolbar={
-            <>
-              <input
-                ref={fileInput}
-                type="file"
-                multiple
-                accept={ACCEPT}
-                className="hidden"
-                data-testid="file-input"
-                onChange={(e) => {
-                  if (e.target.files?.length) files.add(e.target.files);
-                  e.target.value = "";
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => fileInput.current?.click()}
-                disabled={!canAttach}
-                aria-label="Attach files"
-                title="Attach files (PDF, Word, Excel, CSV, JSON, text, code, images)"
-                className="flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
-              >
-                <Paperclip className="size-4" />
-              </button>
-              <ModelSelect models={chatModels} value={modelId} onChange={chooseModel} disabled={generating} />
-              <GenerationSettings
-                params={params}
-                onChange={setParams}
-                maxContext={selectedModel?.context_length ?? null}
-              />
-              {apiUp && (
-                <TemplatesMenu draft={draft} onInsert={(text) => setDraft((d) => (d ? `${d}\n\n${text}` : text))} />
-              )}
-              {params.response_format === "json" && (
-                <span className="rounded border px-1.5 py-0.5 font-mono text-[0.7rem] text-muted-foreground">JSON</span>
-              )}
-            </>
-          }
-        />
-        {hasImage && selectedModel && !modelSeesImages && (
-          <p className="mt-2 text-xs text-muted-foreground" role="status">
-            {selectedModel.display_name} can&apos;t see images. It will only be told that an image is attached.
-          </p>
-        )}
-        <AttachmentPreview attachment={preview} open={preview !== null} onOpenChange={(o) => !o && setPreview(null)} />
-        {conversationId && (
-          <MemoryDialog
-            open={remembering !== null}
-            onOpenChange={(o) => !o && setRemembering(null)}
-            kinds={
-              projectId ? ["preference", "knowledge", "project", "temporary"] : ["preference", "knowledge", "temporary"]
+            ) : conversationId && conversation.isPending && !live ? (
+              <p className="py-16 text-center text-sm text-muted-foreground" role="status">
+                Loading conversation…
+              </p>
+            ) : conversation.isError ? (
+              <p className="py-16 text-center text-sm text-destructive" role="alert">
+                Couldn&apos;t load this conversation: {conversation.error.message}
+              </p>
+            ) : empty ? (
+              <EmptyChat projectName={project.data?.name} />
+            ) : (
+              <>
+                {live && live.historyDropped > 0 && (
+                  <p className="mb-6 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+                    {live.historyDropped} older message{live.historyDropped === 1 ? " was" : "s were"} left out to fit
+                    the model&apos;s context window
+                    {live.memory?.summary_used ? "; the conversation’s summary stood in for them." : "."}
+                  </p>
+                )}
+                <MessageList messages={messages} phase={live?.phase} busy={generating || !!blocked} actions={actions} />
+                {docNote && (
+                  <p className="mt-3 text-xs text-muted-foreground" role="status">
+                    {docNote}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="mx-auto w-full max-w-3xl px-4 pb-4 sm:px-6">
+          <StatusNotice
+            apiUp={apiUp}
+            apiPending={health.isPending}
+            modelsError={models.isError}
+            providerMessage={providerDown?.message ?? null}
+            noModels={apiUp && models.isSuccess && chatModels.length === 0}
+            onRetry={() => void models.refetch()}
+          />
+          {sendError && (
+            <p className="mb-2 text-sm text-destructive" role="alert">
+              {sendError}
+            </p>
+          )}
+          <Composer
+            value={draft}
+            onChange={setDraft}
+            onSend={() => void send()}
+            onStop={() => conversationId && stopTurn(conversationId)}
+            generating={generating}
+            canSend={!blocked && !!modelId && !notFound}
+            disabledReason={blocked}
+            autoFocus
+            onPasteFiles={canAttach ? files.add : undefined}
+            above={
+              files.files.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5 px-3 pt-3" aria-label="Files to send">
+                  {files.files.map((f) => (
+                    <AttachmentChip
+                      key={f.localId}
+                      name={f.name}
+                      kind={f.attachment?.kind}
+                      detail={`${formatBytes(f.size)} · ready`}
+                      state={f.phase}
+                      progress={f.progress}
+                      error={f.error}
+                      onRemove={() => files.remove(f.localId)}
+                      onOpen={f.attachment ? () => setPreview(f.attachment!) : undefined}
+                    />
+                  ))}
+                </div>
+              ) : null
             }
-            projectId={projectId ?? undefined}
-            conversationId={conversationId}
-            initial={
-              remembering
-                ? { content: remembering.content.slice(0, 4000), source_message_id: remembering.id }
-                : undefined
+            toolbar={
+              <>
+                <input
+                  ref={fileInput}
+                  type="file"
+                  multiple
+                  accept={ACCEPT}
+                  className="hidden"
+                  data-testid="file-input"
+                  onChange={(e) => {
+                    if (e.target.files?.length) files.add(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInput.current?.click()}
+                  disabled={!canAttach}
+                  aria-label="Attach files"
+                  title="Attach files (PDF, Word, Excel, CSV, JSON, text, code, images)"
+                  className="flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
+                >
+                  <Paperclip className="size-4" />
+                </button>
+                <ModelSelect models={chatModels} value={modelId} onChange={chooseModel} disabled={generating} />
+                <GenerationSettings
+                  params={params}
+                  onChange={setParams}
+                  maxContext={selectedModel?.context_length ?? null}
+                />
+                {apiUp && (
+                  <TemplatesMenu draft={draft} onInsert={(text) => setDraft((d) => (d ? `${d}\n\n${text}` : text))} />
+                )}
+                {params.response_format === "json" && (
+                  <span className="rounded border px-1.5 py-0.5 font-mono text-[0.7rem] text-muted-foreground">
+                    JSON
+                  </span>
+                )}
+              </>
             }
           />
-        )}
-        <p className="mt-2 text-center text-xs text-muted-foreground">
-          Runs locally on your computer. Models can be wrong; check important answers.
-        </p>
+          {hasImage && selectedModel && !modelSeesImages && (
+            <p className="mt-2 text-xs text-muted-foreground" role="status">
+              {selectedModel.display_name} can&apos;t see images. It will only be told that an image is attached.
+            </p>
+          )}
+          <AttachmentPreview
+            attachment={preview}
+            open={preview !== null}
+            onOpenChange={(o) => !o && setPreview(null)}
+          />
+          {conversationId && (
+            <MemoryDialog
+              open={remembering !== null}
+              onOpenChange={(o) => !o && setRemembering(null)}
+              kinds={
+                projectId
+                  ? ["preference", "knowledge", "project", "temporary"]
+                  : ["preference", "knowledge", "temporary"]
+              }
+              projectId={projectId ?? undefined}
+              conversationId={conversationId}
+              initial={
+                remembering
+                  ? { content: remembering.content.slice(0, 4000), source_message_id: remembering.id }
+                  : undefined
+              }
+            />
+          )}
+          <p className="mt-2 text-center text-xs text-muted-foreground">
+            Runs locally on your computer. Models can be wrong; check important answers.
+          </p>
+        </div>
       </div>
+      {openArtifact && (
+        <aside
+          aria-label="Artifact panel"
+          className="fixed inset-0 z-40 flex flex-col bg-background lg:static lg:z-auto lg:w-[min(48rem,50%)] lg:shrink-0 lg:border-l"
+        >
+          <ArtifactViewer
+            key={openArtifact.id}
+            artifactId={openArtifact.id}
+            initialVersion={openArtifact.version}
+            onClose={() => setOpenArtifact(null)}
+          />
+        </aside>
+      )}
     </div>
   );
 }

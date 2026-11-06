@@ -1,6 +1,6 @@
 """ORM models. M3: sessions, audit log, settings, conversation core. M4: model registry.
 M5: active branch pointer, finish reasons, prompt templates. M6: attachments and document chunks.
-M7: project knowledge (attachments.project_id). M8: memories, messages.memory_ids.
+M7: project knowledge (attachments.project_id). M8: memories, messages.memory_ids. M9: artifacts and versions.
 
 Later milestones add their tables through new Alembic revisions (see docs/02-architecture.md §5).
 """
@@ -251,3 +251,42 @@ class Memory(Base):
     last_used_at: Mapped[datetime | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class Artifact(Base):
+    """Viewable, runnable content (web page, React component, diagram, chart, document, code) with history.
+
+    Created from a model reply (an `<artifact>` block) or by the user. Rendered only in the sandbox origin.
+    """
+
+    __tablename__ = "artifacts"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    #: Stable name the model uses to update the artifact within a conversation (e.g. "todo-app").
+    identifier: Mapped[str] = mapped_column(String(100))
+    title: Mapped[str] = mapped_column(String(200))
+    kind: Mapped[str] = mapped_column(String(20))  # html|react|svg|markdown|mermaid|chart|javascript|code
+    language: Mapped[str | None] = mapped_column(String(40))  # for kind "code"
+    conversation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
+    current_version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow, index=True)
+
+
+class ArtifactVersion(Base):
+    """Immutable snapshot of an artifact's content. Editing or restoring adds a new version."""
+
+    __tablename__ = "artifact_versions"
+    __table_args__ = (Index("ux_artifact_versions_artifact_version", "artifact_id", "version", unique=True),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    artifact_id: Mapped[str] = mapped_column(ForeignKey("artifacts.id", ondelete="CASCADE"))
+    version: Mapped[int] = mapped_column(Integer)
+    content: Mapped[str] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(String(20))  # model | user | restore
+    #: Reply that produced this version (no FK: versions outlive regenerated branches).
+    message_id: Mapped[str | None] = mapped_column(String(32), index=True)
+    note: Mapped[str] = mapped_column(String(300), default="")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)

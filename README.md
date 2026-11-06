@@ -3,13 +3,15 @@
 A local-first, offline-capable AI assistant platform: chat, projects, memory, artifacts, agents, a model library
 and a research and training studio. It runs on open-weight models and needs no paid APIs.
 
-**Status:** Milestone 5 (complete chat) done. Chat with any model installed in Ollama, with Markdown and
-highlighted code, editing, regenerating, continuing and retrying (with version history), stop, timestamps,
-search, folders, pin/archive, export, prompt templates and JSON mode, plus file attachments (PDF, Word, Excel,
-CSV, JSON, Markdown, text, source code, images) that the model reads, and projects with shared instructions
-and knowledge files, each with its own isolated search index, and persistent memory you can inspect, edit and
-delete (preferences, conversation summaries, project notes, knowledge, temporary context). Artifacts arrive in
-Milestone 9.
+**Status:** Milestones 1–9 done; agents arrive in Milestone 10. What works today:
+- Chat with any model installed in Ollama: Markdown and highlighted code, editing, regenerating, continuing and
+  retrying (with version history), stop, search, folders, pin/archive, export, prompt templates and JSON mode.
+- File attachments (PDF, Word, Excel, CSV, JSON, Markdown, text, source code, images) that the model reads.
+- Projects with shared instructions and knowledge files, each with its own isolated search index.
+- Persistent memory you can inspect, edit and delete (preferences, conversation summaries, project notes,
+  knowledge, temporary context).
+- Artifacts (web pages, React components, SVG, Markdown, Mermaid diagrams, charts, JavaScript, code) with live
+  preview in an isolated sandbox, a source editor, version history, comparison, full screen and export.
 
 ## Requirements
 
@@ -32,7 +34,7 @@ uv sync
 
 ## Run
 
-Start the API and the web UI in two terminals:
+Start the API, the web UI and the artifact sandbox in three terminals:
 
 ```bash
 pnpm dev:api
@@ -42,12 +44,19 @@ pnpm dev:api
 pnpm dev:web
 ```
 
+```bash
+pnpm dev:sandbox
+```
+
+The sandbox (port 3901) serves the page that artifact previews run in. It is a separate origin with no network
+access, so artifact code never runs inside the app. Without it, chat works but previews show a notice.
+
 Make sure the Ollama app is running, then open http://127.0.0.1:3000. Both servers bind to loopback only. The API stores its data in
 `%LOCALAPPDATA%\Clawde` (database and logs). Change this with `CLAWDE_DATA_DIR`; see [docs/api.md](docs/api.md).
 
 ## Checks
 
-Run everything (API lint, types and tests, then web lint, types and tests):
+Run everything (API lint, types and tests, web lint, types and tests, then the sandbox server tests):
 
 ```bash
 pnpm check
@@ -81,11 +90,13 @@ pnpm --filter desktop e2e
 
 ```
 apps/desktop/        Next.js 16 web UI (App Router, Tailwind v4, shadcn/ui on Radix)
+apps/sandbox/        Artifact runtime + static server (separate origin, strict CSP, vendored libraries)
 apps/api/            FastAPI app: config, middleware, security (sessions/CSRF), routers, SSE streaming, CLI
 core/inference/      Provider-independent ModelProvider protocol, gateway, types
 core/orchestrator/   One chat turn: stream, forward, persist (incl. stop/cancel)
 core/context/        Fitting history into the model's context window
 core/memory/         Memory ranking policy and how memory is shown to the model
+core/artifacts/      Finding artifact blocks in replies; instructions for models
 models/adapters/     Ollama adapter (llama.cpp and Transformers adapters come in M11)
 models/registry/     Model registry synced from providers
 services/            audit/, settings/, conversation/: business logic used by the API
@@ -96,6 +107,7 @@ services/retrieval/  Passage ranking (BM25, optional embeddings)
 services/attachments/ Upload storage, background processing, model context
 services/projects/   Project listing, search, export, deletion
 services/memory/     Memory storage, scope rules, recall for chat turns, summaries
+services/artifacts/  Artifact storage, versions, restore, extraction from replies
 storage/vector_index/ Per-scope FAISS indexes (one per project)
 tests/backend/       API, database and migration tests
 tests/security/      Path safety tests
