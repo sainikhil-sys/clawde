@@ -177,7 +177,14 @@ export type ProviderStatus = {
 };
 export type ModelList = { models: ModelInfo[]; providers: ProviderStatus[] };
 
-export type AppSettings = { network_access_enabled: boolean; default_model: string | null };
+export type AppSettings = {
+  network_access_enabled: boolean;
+  default_model: string | null;
+  /** Put relevant saved memories into chat context. */
+  memory_enabled: boolean;
+  /** Summarise a conversation into memory when it outgrows the context window. */
+  memory_auto_summarise: boolean;
+};
 
 export type MessageStatus = "streaming" | "complete" | "error" | "cancelled";
 export type ChatMessage = {
@@ -196,6 +203,8 @@ export type ChatMessage = {
   /** This message and its alternatives (edits / regenerations), oldest first. Present on detail reads. */
   sibling_ids?: string[];
   attachments?: AttachmentBrief[];
+  /** Saved memories that were in context for this reply (ids may refer to since-deleted memories). */
+  memory_ids?: string[] | null;
 };
 
 export type AttachmentKind = "pdf" | "docx" | "xlsx" | "csv" | "json" | "markdown" | "text" | "code" | "image";
@@ -227,6 +236,77 @@ export type DocumentUse = {
     total_excerpts: number;
     image_visible: boolean | null;
   }[];
+};
+
+export const MEMORY_KINDS = ["preference", "summary", "project", "knowledge", "temporary"] as const;
+export type MemoryKind = (typeof MEMORY_KINDS)[number];
+export type Memory = {
+  id: string;
+  kind: MemoryKind;
+  title: string;
+  content: string;
+  importance: number;
+  pinned: boolean;
+  project_id: string | null;
+  conversation_id: string | null;
+  source: "user" | "message" | "import" | "summary";
+  meta: Record<string, unknown>;
+  expires_at: string | null;
+  embedding_model: string | null;
+  use_count: number;
+  last_used_at: string | null;
+  created_at: string;
+  updated_at: string;
+  project_name: string | null;
+  conversation_title: string | null;
+};
+export type MemoryCreate = {
+  kind: Exclude<MemoryKind, "summary">;
+  content: string;
+  title?: string;
+  importance?: number;
+  pinned?: boolean;
+  project_id?: string;
+  conversation_id?: string;
+  expires_in_hours?: number;
+  source_message_id?: string;
+};
+export type MemoryPatch = Partial<Pick<Memory, "title" | "content" | "importance" | "pinned">> & {
+  expires_in_hours?: number;
+  clear_expiry?: boolean;
+};
+export type MemoryFilter = { kind?: MemoryKind; projectId?: string; conversationId?: string; q?: string };
+export type MemoryStats = { counts: Record<MemoryKind, number>; total: number; embedding_model: string | null };
+export type MemoryScore = {
+  id: string;
+  kind: MemoryKind;
+  title: string;
+  passage: number;
+  text: string;
+  relevance: number;
+  importance: number;
+  recency: number;
+  score: number;
+  pinned: boolean;
+  always: boolean;
+};
+export type MemoryPreview = {
+  candidates: number;
+  semantic: boolean;
+  tokens: number;
+  skipped_for_budget: number;
+  chosen: MemoryScore[];
+  others: MemoryScore[];
+};
+/** What saved memory went into a reply (sent in the turn "start" event). */
+export type MemoryUse = {
+  enabled: boolean;
+  used: { id: string; kind: MemoryKind; title: string; score: number; relevance: number; pinned: boolean }[];
+  summary_used: boolean;
+  summary_id?: string;
+  candidates?: number;
+  semantic?: boolean;
+  skipped_for_budget?: number;
 };
 
 export type Conversation = {
@@ -293,6 +373,7 @@ export type TurnEvent =
         assistant_message: ChatMessage;
         history_messages_dropped: number;
         documents?: DocumentUse;
+        memory?: MemoryUse;
       };
     }
   | { event: "token"; data: { text: string } }
@@ -388,6 +469,31 @@ export const api = {
     return { blob: await resp.blob(), filename };
   },
   deleteTemplate: (id: string) => apiRequest<void>(`/api/templates/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  memories: (filter: MemoryFilter = {}, signal?: AbortSignal) => {
+    const q = new URLSearchParams();
+    if (filter.kind) q.set("kind", filter.kind);
+    if (filter.projectId) q.set("project_id", filter.projectId);
+    if (filter.conversationId) q.set("conversation_id", filter.conversationId);
+    if (filter.q?.trim()) q.set("q", filter.q.trim());
+    const qs = q.toString();
+    return apiRequest<Memory[]>(`/api/memories${qs ? `?${qs}` : ""}`, { signal });
+  },
+  memory: (id: string, signal?: AbortSignal) =>
+    apiRequest<Memory>(`/api/memories/${encodeURIComponent(id)}`, { signal }),
+  memoryStats: (signal?: AbortSignal) => apiRequest<MemoryStats>("/api/memories/stats", { signal }),
+  createMemory: (body: MemoryCreate) => apiRequest<Memory>("/api/memories", { method: "POST", body }),
+  updateMemory: (id: string, patch: MemoryPatch) =>
+    apiRequest<Memory>(`/api/memories/${encodeURIComponent(id)}`, { method: "PATCH", body: patch }),
+  deleteMemory: (id: string) => apiRequest<void>(`/api/memories/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  deleteAllMemories: () => apiRequest<{ deleted: number }>("/api/memories?confirm=delete-all", { method: "DELETE" }),
+  previewMemory: (body: { query: string; project_id?: string; conversation_id?: string }) =>
+    apiRequest<MemoryPreview>("/api/memories/preview", { method: "POST", body }),
+  exportMemories: async () => {
+    const resp = await apiFetch("/api/memories/export");
+    return { blob: await resp.blob(), filename: "clawde-memory.json" };
+  },
+  summariseConversation: (id: string, body: { model_id?: string } = {}) =>
+    apiRequest<Memory>(`/api/conversations/${encodeURIComponent(id)}/summarise`, { method: "POST", body }),
   conversation: (id: string, signal?: AbortSignal) =>
     apiRequest<ConversationDetail>(`/api/conversations/${encodeURIComponent(id)}`, { signal }),
   createConversation: (body: { title?: string; model_id?: string; project_id?: string } = {}) =>
@@ -484,6 +590,28 @@ export async function uploadAttachment(
       opts.signal?.addEventListener("abort", () => xhr.abort());
       xhr.send(form);
     });
+  };
+  return send(true);
+}
+
+/** Turns a document into a knowledge memory (only its extracted text is kept). */
+export async function importMemoryFile(file: File, title?: string): Promise<Memory> {
+  const send = async (retry: boolean): Promise<Memory> => {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    if (title?.trim()) form.append("title", title.trim());
+    const resp = await rawFetch("/api/memories/import", {
+      method: "POST",
+      headers: { "X-CSRF-Token": await ensureSession() },
+      body: form,
+    });
+    if (resp.ok) return (await resp.json()) as Memory;
+    const err = await toApiError(resp);
+    if (retry && ["no_session", "session_expired", "csrf_failed"].includes(err.code)) {
+      resetSession();
+      return send(false);
+    }
+    throw err;
   };
   return send(true);
 }

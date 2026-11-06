@@ -60,6 +60,7 @@ describe("AppShell", () => {
     for (const label of [
       "New chat",
       "Projects",
+      "Memory",
       "Artifacts",
       "Agents",
       "Research Studio",

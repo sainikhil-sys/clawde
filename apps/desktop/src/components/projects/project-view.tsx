@@ -8,6 +8,7 @@ import {
   MessageSquarePlus,
   MoreHorizontal,
   Pencil,
+  Plus,
   Search,
   Trash2,
   Upload,
@@ -42,7 +43,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { MemoryDialog } from "@/components/memory/memory-dialog";
 import { useApiHealth } from "@/hooks/use-api-health";
+import { useMemories, useMemoryActions } from "@/hooks/use-memories";
 import { useConversations } from "@/hooks/use-chat";
 import { ACCEPT } from "@/hooks/use-composer-attachments";
 import { useProject, useProjectActions, useProjectKnowledge, useProjectSearch } from "@/hooks/use-projects";
@@ -100,6 +103,7 @@ function ProjectBody({ project }: { project: Project }) {
         <div className="space-y-8">
           <InstructionsEditor project={project} />
           <KnowledgePanel projectId={project.id} />
+          <ProjectMemory projectId={project.id} />
         </div>
       </div>
     </div>
@@ -558,6 +562,57 @@ function ProjectSearch({ projectId }: { projectId: string }) {
           )}
         </div>
       )}
+    </Section>
+  );
+}
+
+function ProjectMemory({ projectId }: { projectId: string }) {
+  const memories = useMemories({ projectId });
+  const { remove } = useMemoryActions();
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <Section
+      title="Project memory"
+      description="Notes and chat summaries recalled only in this project's chats, when relevant."
+      action={
+        <button
+          type="button"
+          onClick={() => setAdding(true)}
+          className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-xs hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Plus className="size-3" /> Add note
+        </button>
+      }
+    >
+      {memories.isPending ? (
+        <p className="text-xs text-muted-foreground">Loading…</p>
+      ) : memories.isError ? (
+        <p className="text-xs text-destructive">Couldn&apos;t load project memory.</p>
+      ) : memories.data.length === 0 ? (
+        <p className="text-xs text-muted-foreground">Nothing yet.</p>
+      ) : (
+        <ul className="space-y-2" aria-label="Project memory">
+          {memories.data.map((m) => (
+            <li key={m.id} className="flex items-start gap-2 rounded-md border px-2.5 py-2 text-xs">
+              <span className="min-w-0 flex-1">
+                <span className="text-muted-foreground">{m.kind === "summary" ? "Chat summary" : "Note"}</span>
+                <span className="line-clamp-3 block whitespace-pre-wrap">{m.title || m.content}</span>
+              </span>
+              <button
+                type="button"
+                aria-label="Delete memory"
+                onClick={() => remove.mutate(m.id, { onError: (err) => setError(errorText(err, "Delete failed.")) })}
+                className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
+      <MemoryDialog open={adding} onOpenChange={setAdding} kinds={["project"]} projectId={projectId} />
     </Section>
   );
 }

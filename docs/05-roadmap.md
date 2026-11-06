@@ -15,7 +15,7 @@ chat is model-independent from day one. M11 then builds the full Model Library U
 | 5 | Complete chat | Conversations CRUD, search, folders, pin/archive, edit/regenerate branches, continue, retry, markdown/code, export, JSON mode, prompt templates | ✅ Done: see progress log |
 | 6 | Files & documents | Upload validation (size/type/magic), extraction for all listed types, previews, status + errors, chunking, embeddings, chat-with-file | ✅ Done: see progress log |
 | 7 | Projects | Project CRUD, instructions, knowledge, scoped chats, per-project FAISS, search, export/delete | ✅ Done: see progress log |
-| 8 | Memory & retrieval | 5 memory kinds, CRUD/inspect UI, ranking, summarisation, context budgeting | 🧪 memory survives restart; deleted memory never retrieved |
+| 8 | Memory & retrieval | 5 memory kinds, CRUD/inspect UI, ranking, summarisation, context budgeting | ✅ Done: see progress log |
 | 9 | Artifacts | Sandbox origin server, iframe runtime, all artifact types, editor, versions, diff, fullscreen, export | 🧪 security tests: artifact cannot read parent cookies/DOM or call API |
 | 10 | Agents & permissions | Tool registry, 8 tools, planner/executor, approvals UI, retry, cancel, history, Docker + fallback sandbox | 🧪 denied tool never runs; write outside workspace blocked; cancel mid-run |
 | 11 | Model management | Model Library UI, llama.cpp + Transformers adapters, import/download/remove, metadata/licence/fit, behaviour profiles, router, RAM/GPU monitor, eval harness v1 (incl. refusal behaviour) | 🧪 switch models mid-conversation; router picks capable model that fits RAM |
@@ -245,8 +245,54 @@ Fixed during verification:
 
 Deferred: project memory is part of the memory system (Milestone 8).
 
+### Milestone 8: memory (2026-11-07)
+Built:
+- `memories` table (migration `0006`) with five kinds and fixed scope rules: preferences and knowledge are global;
+  project memory is used only in that project's chats; a conversation summary of a project chat stays inside that
+  project; temporary context belongs to one conversation and can expire. Deleting a conversation or project deletes
+  its memories. Deleting a memory removes the row and its vectors immediately.
+- Recall for every chat turn (`services/memory`, `core/memory`): score = 0.60 relevance + 0.25 importance +
+  0.15 recency (halves every 30 days since last edit or use). Pinned memories come first; preferences and temporary
+  context are always eligible; anything else must relate to the message. Memory gets a bounded share of the context
+  window (20% of what's left, at most 1,500 tokens), and long knowledge is split into passages so only relevant parts
+  are sent. Relevance is BM25, blended with embeddings when an embedding model is installed.
+- Prompt-injection defence: preferences and temporary context are presented as the user's guidance; knowledge,
+  summaries and project notes are wrapped in `<memory>` tags as reference data the model must not obey (tags are
+  escaped).
+- Transparency: every reply records which memories were in its context (`messages.memory_ids`), shown as a chip
+  that opens the list (including "deleted since"). Recall marks memories as used (count + time).
+- Summaries: `POST /api/conversations/{id}/summarise` writes or replaces a conversation's summary with the chosen
+  model. When older messages no longer fit, the conversation's summary stands in for them (rolling summary). With
+  "Summarise long conversations" on, the summary is refreshed in the background after a turn that dropped history
+  (only when 6+ new messages since the last one).
+- Knowledge import: a document is validated and extracted like an attachment; only its text is kept.
+- API: CRUD, search, stats, preview (score breakdown, doesn't count as use), export (JSON), delete-all with an
+  explicit confirm parameter; creates and deletes are audited without content. Settings `memory_enabled` and
+  `memory_auto_summarise`.
+- Web UI: Memory page (settings, kind tabs with counts, search, create/edit with importance/pin/expiry, import,
+  pin/edit/delete, export, delete all, "Test recall" with the score table); "Remember this" on messages; a memory
+  button in the chat header (summary + temporary context); project memory panel on project pages.
+
+Verified:
+- 187 backend tests, including the acceptance checks: memory survives an API restart, and a deleted memory is never
+  recalled, previewed, searched or exported. Also: scope isolation (project, project summaries, temporary),
+  expiry and purge on startup, relevance filtering, passages from long knowledge, rolling and automatic summaries,
+  the memory switch, import validation, semantic recall with an embedding model.
+- 71 frontend tests; 5 end-to-end tests. With llama3.2: a preference saved on the Memory page was answered in a new
+  chat ("Biscuit") and shown on the reply; after deleting it, a new chat no longer knew it. Also checked by hand with
+  codellama.
+
+Fixed during verification:
+- M7 bug: the larger upload allowance only matched `/api/attachments`, so project knowledge files over 1 MiB were
+  refused with 413. Size limits now match path patterns (knowledge and memory import included), with a test.
+- A hydration error on the Memory page came from a stale dev server render of the old sidebar; restarting the dev
+  server fixed it (no code change).
+
 ## Known limitations (current)
 - CPU-only inference: 7B models run at about 5 tok/s, so small models are the default for interactivity.
 - Fine-tuning is limited to small base models; QLoRA and 7B training are out of scope without an NVIDIA GPU.
 - The Python sandbox fallback without Docker is weaker isolation and is labelled as such.
 - GPU telemetry for Intel iGPU is limited to utilisation counters.
+- Memory matching is by keywords until an embedding model is installed; memory vectors are compared exactly
+  (no index), which is fine for thousands of memories but not millions.
+- Summaries are only as accurate as the model that writes them; they are labelled with that model.

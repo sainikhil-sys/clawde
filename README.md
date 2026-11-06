@@ -7,7 +7,9 @@ and a research and training studio. It runs on open-weight models and needs no p
 highlighted code, editing, regenerating, continuing and retrying (with version history), stop, timestamps,
 search, folders, pin/archive, export, prompt templates and JSON mode, plus file attachments (PDF, Word, Excel,
 CSV, JSON, Markdown, text, source code, images) that the model reads, and projects with shared instructions
-and knowledge files, each with its own isolated search index. Persistent memory arrives in Milestone 8.
+and knowledge files, each with its own isolated search index, and persistent memory you can inspect, edit and
+delete (preferences, conversation summaries, project notes, knowledge, temporary context). Artifacts arrive in
+Milestone 9.
 
 ## Requirements
 
@@ -83,6 +85,7 @@ apps/api/            FastAPI app: config, middleware, security (sessions/CSRF), 
 core/inference/      Provider-independent ModelProvider protocol, gateway, types
 core/orchestrator/   One chat turn: stream, forward, persist (incl. stop/cancel)
 core/context/        Fitting history into the model's context window
+core/memory/         Memory ranking policy and how memory is shown to the model
 models/adapters/     Ollama adapter (llama.cpp and Transformers adapters come in M11)
 models/registry/     Model registry synced from providers
 services/            audit/, settings/, conversation/: business logic used by the API
@@ -92,6 +95,7 @@ services/document_processing/  File type validation, text extraction, chunking
 services/retrieval/  Passage ranking (BM25, optional embeddings)
 services/attachments/ Upload storage, background processing, model context
 services/projects/   Project listing, search, export, deletion
+services/memory/     Memory storage, scope rules, recall for chat turns, summaries
 storage/vector_index/ Per-scope FAISS indexes (one per project)
 tests/backend/       API, database and migration tests
 tests/security/      Path safety tests

@@ -17,6 +17,7 @@ from core.inference.provider import ModelProvider
 from models.adapters.ollama import OllamaProvider
 from services.attachments import service as attachments
 from services.conversation import service as conversations
+from services.memory import service as memory
 from storage.database import migrate
 from storage.database.engine import Database
 
@@ -24,7 +25,7 @@ from .config import APP_VERSION, Settings, get_settings
 from .logging_setup import configure_logging
 from .middleware import BodySizeLimitMiddleware, OriginCheckMiddleware, RequestContextMiddleware
 from .routers import attachments as attachments_router
-from .routers import audit, folders, health, models, projects, session, settings, templates
+from .routers import audit, folders, health, memories, models, projects, session, settings, templates
 from .routers import conversations as conversations_router
 from .security import CSRF_HEADER
 
@@ -59,6 +60,11 @@ def create_app(
         recovered = await conversations.recover_interrupted(database.sessionmaker)
         if recovered:
             log.warning("api.recovered_interrupted_replies", count=recovered)
+        async with database.sessionmaker() as db:
+            expired = await memory.purge_expired(db)
+            await db.commit()
+        if expired:
+            log.info("api.expired_memories_removed", count=expired)
         gateway = InferenceGateway(
             providers
             if providers is not None
@@ -68,6 +74,7 @@ def create_app(
         app.state.database = database
         app.state.gateway = gateway
         app.state.active_generations = set()
+        app.state.summarising = set()
         app.state.background_tasks = set(
             await attachments.resume_unfinished(database.sessionmaker, gateway, cfg.uploads_dir)
         )
@@ -110,6 +117,7 @@ def create_app(
         templates.router,
         attachments_router.router,
         projects.router,
+        memories.router,
     ):
         app.include_router(router, prefix=api_prefix)
 
@@ -128,7 +136,14 @@ def create_app(
         BodySizeLimitMiddleware,
         max_bytes=cfg.max_request_bytes,
         # Multipart overhead on top of the file itself.
-        path_limits={"/api/attachments": cfg.max_upload_bytes + 64 * 1024},
+        path_limits={
+            pattern: cfg.max_upload_bytes + 64 * 1024
+            for pattern in (
+                r"/api/attachments",
+                r"/api/projects/[0-9a-f]{32}/knowledge",
+                r"/api/memories/import",
+            )
+        },
     )
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=cfg.allowed_hosts)

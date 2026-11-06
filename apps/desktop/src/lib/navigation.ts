@@ -1,5 +1,6 @@
 import {
   Bot,
+  Brain,
   FlaskConical,
   FolderKanban,
   Library,
@@ -46,6 +47,14 @@ export const NAV_ITEMS: readonly NavItem[] = [
     icon: FolderKanban,
     description: "Workspaces with their own instructions and knowledge",
     keywords: ["workspace", "knowledge", "documents"],
+  },
+  {
+    id: "memory",
+    label: "Memory",
+    href: "/memory",
+    icon: Brain,
+    description: "What Clawde remembers, and controls to change it",
+    keywords: ["remember", "preferences", "summaries", "knowledge"],
   },
   {
     id: "artifacts",

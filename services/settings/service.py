@@ -20,6 +20,10 @@ class AppSettings(BaseModel):
     network_access_enabled: bool = False
     #: Model used when a conversation has none selected. Wired up in Milestone 4.
     default_model: str | None = Field(default=None, max_length=200)
+    #: Put relevant saved memories into chat context (Milestone 8).
+    memory_enabled: bool = True
+    #: Summarise a conversation into memory when it grows past the model's context window.
+    memory_auto_summarise: bool = True
 
 
 class AppSettingsPatch(BaseModel):
@@ -27,6 +31,8 @@ class AppSettingsPatch(BaseModel):
 
     network_access_enabled: bool | None = None
     default_model: str | None = Field(default=None, max_length=200)
+    memory_enabled: bool | None = None
+    memory_auto_summarise: bool | None = None
 
 
 async def load(db: AsyncSession) -> AppSettings:

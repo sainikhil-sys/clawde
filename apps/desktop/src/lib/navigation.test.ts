@@ -5,11 +5,13 @@ import { describe, expect, it } from "vitest";
 import { isActivePath, NAV_ITEMS } from "./navigation";
 
 describe("NAV_ITEMS", () => {
-  it("lists the eight main sections in spec order", () => {
+  // The spec's eight sections in its order, plus Memory (M8) next to Projects, which it relates to.
+  it("lists the main sections in order", () => {
     expect(NAV_ITEMS.map((i) => i.label)).toEqual([
       "New chat",
       "Search",
       "Projects",
+      "Memory",
       "Artifacts",
       "Agents",
       "Research Studio",

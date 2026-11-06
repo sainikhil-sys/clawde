@@ -1,6 +1,6 @@
 """ORM models. M3: sessions, audit log, settings, conversation core. M4: model registry.
 M5: active branch pointer, finish reasons, prompt templates. M6: attachments and document chunks.
-M7: project knowledge (attachments.project_id).
+M7: project knowledge (attachments.project_id). M8: memories, messages.memory_ids.
 
 Later milestones add their tables through new Alembic revisions (see docs/02-architecture.md §5).
 """
@@ -112,6 +112,8 @@ class Message(Base):
     error: Mapped[str | None] = mapped_column(Text)
     #: Why generation ended: "stop", "length" (hit max tokens, can be continued), backend-specific otherwise.
     finish_reason: Mapped[str | None] = mapped_column(String(20))
+    #: Memories that were placed in the model's context for this reply (ids only, for transparency).
+    memory_ids: Mapped[list[str] | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
@@ -212,3 +214,40 @@ class DocumentChunk(Base):
     #: Optional vector from a local embedding model (None when no embedding model is installed).
     embedding: Mapped[list[float] | None] = mapped_column(JSON)
     embedding_model: Mapped[str | None] = mapped_column(String(300))
+
+
+class Memory(Base):
+    """Something the assistant may recall in later turns. Always visible and editable by the user.
+
+    Kinds and scope:
+    - ``preference``: about the user; global.
+    - ``summary``: a summary of one conversation (``conversation_id``); inherits its ``project_id``.
+    - ``project``: notes for one project (``project_id``); only used in that project's chats.
+    - ``knowledge``: reference text, typed or imported from a document; global.
+    - ``temporary``: context for one conversation (``conversation_id``), optionally expiring.
+    """
+
+    __tablename__ = "memories"
+    __table_args__ = (Index("ix_memories_kind_updated", "kind", "updated_at"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    kind: Mapped[str] = mapped_column(String(20))
+    title: Mapped[str] = mapped_column(String(200), default="")
+    content: Mapped[str] = mapped_column(Text)
+    importance: Mapped[int] = mapped_column(Integer, default=3)  # 1..5
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    conversation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
+    source: Mapped[str] = mapped_column(String(20), default="user")  # user | message | import | summary
+    #: Kind-specific details: imported filename, summary coverage.
+    meta: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    expires_at: Mapped[datetime | None] = mapped_column(index=True)
+    #: One vector per passage of `content` (see services/memory), from a local embedding model if installed.
+    embeddings: Mapped[list[list[float]] | None] = mapped_column(JSON)
+    embedding_model: Mapped[str | None] = mapped_column(String(300))
+    use_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_used_at: Mapped[datetime | None] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)

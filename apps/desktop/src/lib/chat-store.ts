@@ -15,6 +15,7 @@ import {
   streamTurn,
   type ChatMessage,
   type DocumentUse,
+  type MemoryUse,
   type GenerationParams,
   type TurnRequest,
 } from "./api";
@@ -31,6 +32,8 @@ export type LiveTurn = {
   historyDropped: number;
   /** How attached files were given to the model this turn (full text or excerpts). */
   documents?: DocumentUse;
+  /** Which saved memories (and whether the rolling summary) went into this turn. */
+  memory?: MemoryUse;
   /** Persisted messages from this id onwards are replaced by the live turn (edit / regenerate). */
   replaceFrom?: string;
   /** Set when the request failed before the server accepted it; the draft can be restored. */
@@ -164,6 +167,7 @@ export async function startTurn({
           phase: "streaming",
           historyDropped: ev.data.history_messages_dropped,
           documents: ev.data.documents,
+          memory: ev.data.memory,
         }));
         void queryClient.invalidateQueries({ queryKey: ["conversations"] });
       } else if (ev.event === "token") {

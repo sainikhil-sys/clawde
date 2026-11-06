@@ -13,7 +13,12 @@ from .fakes import FakeProvider
 async def test_settings_defaults_and_validation(client: httpx.AsyncClient) -> None:
     token = await start_session(client)
     resp = await client.get("/api/settings")
-    assert resp.json() == {"network_access_enabled": False, "default_model": None}
+    assert resp.json() == {
+        "network_access_enabled": False,
+        "default_model": None,
+        "memory_enabled": True,
+        "memory_auto_summarise": True,
+    }
 
     unknown = await client.patch("/api/settings", json={"telemetry": True}, headers=csrf_headers(token))
     assert unknown.status_code == 422

@@ -8,6 +8,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { LogoMark } from "@/components/brand/logo";
 import { ConversationMenu } from "@/components/conversation/conversation-menu";
+import { ConversationMemory } from "@/components/memory/conversation-memory";
+import { MemoryDialog } from "@/components/memory/memory-dialog";
 import { useApiHealth } from "@/hooks/use-api-health";
 import { useProject } from "@/hooks/use-projects";
 import { ACCEPT, useComposerAttachments } from "@/hooks/use-composer-attachments";
@@ -58,6 +60,7 @@ export function ChatView({
   const [params, setParams] = useGenerationParams();
   const [draft, setDraft] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
+  const [remembering, setRemembering] = useState<ChatMessage | null>(null);
   const [pickedModel, setPickedModel] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
@@ -165,6 +168,7 @@ export function ChatView({
       run(conversationId, { kind: "continue", message_id: message.id, params }, message);
     },
     onOpenAttachment: (attachment) => setPreview(attachment),
+    onRemember: conversationId ? (message) => setRemembering(message) : undefined,
     onSelectSibling: (messageId) => {
       if (!conversationId) return;
       api
@@ -242,6 +246,7 @@ export function ChatView({
           {conv.archived && (
             <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">Archived</span>
           )}
+          <ConversationMemory conversationId={conv.id} modelId={modelId} disabled={generating} />
           <ConversationMenu conversation={conv} onDeleted={() => router.push("/")} />
         </header>
       )}
@@ -277,7 +282,8 @@ export function ChatView({
               {live && live.historyDropped > 0 && (
                 <p className="mb-6 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
                   {live.historyDropped} older message{live.historyDropped === 1 ? " was" : "s were"} left out to fit the
-                  model&apos;s context window.
+                  model&apos;s context window
+                  {live.memory?.summary_used ? "; the conversation’s summary stood in for them." : "."}
                 </p>
               )}
               <MessageList messages={messages} phase={live?.phase} busy={generating || !!blocked} actions={actions} />
@@ -379,6 +385,22 @@ export function ChatView({
           </p>
         )}
         <AttachmentPreview attachment={preview} open={preview !== null} onOpenChange={(o) => !o && setPreview(null)} />
+        {conversationId && (
+          <MemoryDialog
+            open={remembering !== null}
+            onOpenChange={(o) => !o && setRemembering(null)}
+            kinds={
+              projectId ? ["preference", "knowledge", "project", "temporary"] : ["preference", "knowledge", "temporary"]
+            }
+            projectId={projectId ?? undefined}
+            conversationId={conversationId}
+            initial={
+              remembering
+                ? { content: remembering.content.slice(0, 4000), source_message_id: remembering.id }
+                : undefined
+            }
+          />
+        )}
         <p className="mt-2 text-center text-xs text-muted-foreground">
           Runs locally on your computer. Models can be wrong; check important answers.
         </p>

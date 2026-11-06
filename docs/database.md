@@ -125,5 +125,17 @@ belong to several messages (an edited message keeps the original's files).
 - Vector indexes are files, not tables: `<data_dir>/indexes/project-<id>.faiss` + `.json` (embedding model,
   dimension, chunk signature). They are rebuilt from `document_chunks` whenever the signature changes.
 
-Planned tables (memories, artifacts, models, agent runs, evaluations, research
+## Revision `0006_memory` (Milestone 8)
+
+### memories
+`id`, `kind` (preference|summary|project|knowledge|temporary), `title`, `content`, `importance` (1–5), `pinned`,
+`project_id` FK → projects `ON DELETE CASCADE`, `conversation_id` FK → conversations `ON DELETE CASCADE`, `source`
+(user|message|import|summary), `meta` JSON (import filename, summary coverage/model), `expires_at` (temporary only;
+expired rows are hidden and purged at startup), `embeddings` JSON (one vector per passage) + `embedding_model`,
+`use_count`, `last_used_at`, `created_at`, `updated_at`. Indexes: `kind, updated_at`, `project_id`,
+`conversation_id`, `expires_at`.
+
+- `messages.memory_ids` JSON: ids of the memories that were in context for an assistant reply.
+
+Planned tables (artifacts, models, agent runs, evaluations, research
 runs) are listed in `docs/02-architecture.md` §5 and arrive with their milestones.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from collections.abc import Iterable
@@ -75,14 +76,16 @@ class BodySizeLimitMiddleware:
     def __init__(self, app: ASGIApp, max_bytes: int, path_limits: dict[str, int] | None = None) -> None:
         self.app = app
         self.default_max = max_bytes
-        #: Exact paths with a larger allowance (file uploads); everything else uses the JSON limit.
-        self.path_limits = path_limits or {}
+        #: Path patterns (full-match regexes) with a larger allowance (file uploads); everything else uses the
+        #: JSON limit.
+        self.path_limits = [(re.compile(pattern), limit) for pattern, limit in (path_limits or {}).items()]
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        max_bytes = self.path_limits.get(scope["path"], self.default_max)
+        path = scope["path"]
+        max_bytes = next((lim for rx, lim in self.path_limits if rx.fullmatch(path)), self.default_max)
         length = Headers(scope=scope).get("content-length")
         if length is not None:
             try:

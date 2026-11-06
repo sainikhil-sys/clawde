@@ -1,10 +1,12 @@
 "use client";
 
-import { AlertCircle, ChevronLeft, ChevronRight, Pencil, Play, RefreshCw, RotateCcw } from "lucide-react";
+import { AlertCircle, BookmarkPlus, ChevronLeft, ChevronRight, Pencil, Play, RefreshCw, RotateCcw } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import type { AttachmentBrief, ChatMessage } from "@/lib/api";
 import { cn } from "@/lib/utils";
+
+import { MemoryUsed } from "@/components/memory/memory-used";
 
 import { AttachmentChip, attachmentDetails } from "./attachments";
 import { CopyButton } from "./copy-button";
@@ -17,6 +19,8 @@ export type MessageActions = {
   onContinue: (message: ChatMessage) => void;
   onSelectSibling: (messageId: string) => void;
   onOpenAttachment: (attachment: AttachmentBrief) => void;
+  /** Save (part of) a message to memory. */
+  onRemember?: (message: ChatMessage) => void;
 };
 
 const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
@@ -209,6 +213,11 @@ function UserMessage({ message, busy, actions }: { message: ChatMessage; busy: b
             >
               <Pencil className="size-3.5" />
             </ActionButton>
+            {actions.onRemember && (
+              <ActionButton label="Remember this" onClick={() => actions.onRemember?.(message)}>
+                <BookmarkPlus className="size-3.5" />
+              </ActionButton>
+            )}
           </>
         )}
       </div>
@@ -276,6 +285,12 @@ function AssistantMessage({
                 <RefreshCw className="size-3.5" />
               </ActionButton>
             )}
+            {actions.onRemember && message.content.trim() && (
+              <ActionButton label="Remember this" onClick={() => actions.onRemember?.(message)}>
+                <BookmarkPlus className="size-3.5" />
+              </ActionButton>
+            )}
+            {message.memory_ids && message.memory_ids.length > 0 && <MemoryUsed ids={message.memory_ids} />}
             {canContinue && (
               <button
                 type="button"

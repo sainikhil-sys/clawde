@@ -36,6 +36,7 @@ EXPECTED_TABLES = {
     "attachments",
     "message_attachments",
     "document_chunks",
+    "memories",
 }
 
 
@@ -65,7 +66,7 @@ def test_migrations_match_models(tmp_path: Path) -> None:
 
 
 def test_head_revision_is_single() -> None:
-    assert migrate.head_revision() == "0005_project_knowledge"
+    assert migrate.head_revision() == "0006_memory"
 
 
 async def test_foreign_keys_enforced_and_cascade(tmp_path: Path) -> None:

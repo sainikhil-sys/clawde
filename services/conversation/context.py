@@ -1,4 +1,8 @@
-"""Assemble what the model sees for a turn: conversation history plus attached documents and images."""
+"""Assemble what the model sees for a turn.
+
+System context, in order: project instructions, saved memory, the conversation's rolling summary (only when
+older messages had to be dropped), then attached documents and project knowledge. History fills the rest.
+"""
 
 from __future__ import annotations
 
@@ -14,9 +18,12 @@ from core.context.documents import build_document_context
 from core.inference.gateway import InferenceGateway
 from core.inference.provider import ProviderError
 from core.inference.types import ChatMessage, GenerationParams, Role
+from core.memory import ranking as memory_ranking
+from core.memory.render import render_memories, render_summary
 from services.attachments import service as attachments
+from services.memory import service as memory
 from services.retrieval import project_index
-from storage.database.models import Attachment, Message, ModelRecord, Project
+from storage.database.models import Attachment, Conversation, Message, ModelRecord, Project
 
 log = structlog.get_logger("clawde.context")
 
@@ -30,6 +37,9 @@ class TurnContext:
     history: list[ChatMessage]
     dropped: int
     documents: dict[str, Any] = field(default_factory=dict)
+    #: What saved memory was used (shown to the user): ids, kinds, scores, rolling-summary flag.
+    memory: dict[str, Any] = field(default_factory=dict)
+    memory_ids: list[str] = field(default_factory=list)
 
 
 def _marker(atts: list[Attachment]) -> str:
@@ -46,9 +56,12 @@ async def build_turn(
     *,
     project: Project | None = None,
     indexes_dir: Path | None = None,
+    conversation: Conversation | None = None,
+    use_memory: bool = False,
 ) -> TurnContext:
     """`project`: the conversation's project. Its instructions lead the context and its knowledge files are
-    searched for passages relevant to the latest message."""
+    searched for passages relevant to the latest message. `use_memory`: recall saved memory in scope for
+    `conversation` (see services/memory for the scope rules)."""
     links = await attachments.links_for_messages(db, [m.id for m in rows if m.role == "user"])
     sees_images = "vision" in (model.capabilities or [])
 
@@ -80,13 +93,41 @@ async def build_turn(
 
     info: dict[str, Any] = {"mode": "none", "files": []}
     query = next((m.content for m in reversed(rows) if m.role == "user"), "")
+    history_tokens = sum(estimate_tokens(m.content) for m in messages)
+    window = params.context_length - params.max_tokens
+
+    # Saved memory gets a bounded share of the window. Old history is dropped before memory is.
+    memory_text = ""
+    memory_info: dict[str, Any] = {"enabled": use_memory, "used": [], "summary_used": False}
+    recall: memory.Recall | None = None
+    if use_memory:
+        budget = memory_ranking.memory_budget(window - min(history_tokens, window // 2))
+        recall = await memory.recall(db, gateway, query=query, conversation=conversation, token_budget=budget)
+        memory_text = render_memories(recall.selection.chosen)
+        memory_info.update(
+            candidates=recall.candidates,
+            semantic=recall.semantic,
+            skipped_for_budget=recall.selection.skipped_for_budget,
+            used=[
+                {
+                    "id": c.id,
+                    "kind": c.kind,
+                    "title": c.title,
+                    "score": c.score,
+                    "relevance": c.relevance,
+                    "pinned": c.pinned,
+                }
+                for c in recall.selection.chosen
+            ],
+        )
+
     knowledge: project_index.ProjectKnowledge | None = None
     if project is not None and indexes_dir is not None:
         knowledge = await project_index.retrieve(db, gateway, indexes_dir, project.id, query)
 
+    doc_text = ""
     if all_atts or (knowledge and knowledge.attachments):
-        history_tokens = sum(estimate_tokens(m.content) for m in messages)
-        available = params.context_length - params.max_tokens - history_tokens
+        available = window - history_tokens - (estimate_tokens(memory_text) if memory_text else 0)
         budget = max(256, int(available * DOCUMENT_SHARE))
         chunks = await attachments.chunks_for(db, [a.id for a in all_atts])
         query_vec = await _query_embedding(gateway, chunks, query)
@@ -100,7 +141,7 @@ async def build_turn(
                 project_atts, knowledge.chunks, model_sees_images=sees_images, origin="project knowledge"
             )
         doc_ctx = build_document_context(sources, query=query, token_budget=budget, query_embedding=query_vec)
-        messages.insert(0, ChatMessage(role="system", content=doc_ctx.content))
+        doc_text = doc_ctx.content
 
         def describe(a: Attachment, origin: str) -> dict[str, Any]:
             return {
@@ -120,20 +161,34 @@ async def build_turn(
             + [describe(a, "project") for a in project_atts],
         }
 
+    instructions = ""
     if project is not None and project.instructions.strip():
-        messages.insert(
-            0,
-            ChatMessage(
-                role="system",
-                content="Instructions from the user for every conversation in the project "
-                f'"{project.name}":\n{project.instructions.strip()}',
-            ),
+        instructions = (
+            f'Instructions from the user for every conversation in the project "{project.name}":\n'
+            f"{project.instructions.strip()}"
         )
 
-    history, dropped = fit_history(
-        _merge_system(messages), context_length=params.context_length, reserve_for_output=params.max_tokens
-    )
-    return TurnContext(history=history, dropped=dropped, documents=info)
+    def assemble(summary: str) -> tuple[list[ChatMessage], int]:
+        system = [t for t in (instructions, memory_text, summary, doc_text) if t]
+        full = [ChatMessage(role="system", content=t) for t in system] + messages
+        return fit_history(
+            _merge_system(full), context_length=params.context_length, reserve_for_output=params.max_tokens
+        )
+
+    history, dropped = assemble("")
+    if dropped and recall is not None and recall.summary is not None:
+        # Older messages fell out of the window: stand in for them with the conversation's summary.
+        history, dropped = assemble(render_summary(recall.summary.content))
+        memory_info["summary_used"] = True
+        memory_info["summary_id"] = recall.summary.id
+
+    ids = [u["id"] for u in memory_info["used"]]
+    if memory_info["summary_used"]:
+        ids.append(memory_info["summary_id"])
+    ids = list(dict.fromkeys(ids))
+    if ids:
+        await memory.mark_used(db, ids)
+    return TurnContext(history=history, dropped=dropped, documents=info, memory=memory_info, memory_ids=ids)
 
 
 def _merge_system(messages: list[ChatMessage]) -> list[ChatMessage]:

@@ -26,8 +26,8 @@ Status: ⬜ not started · 🟨 in progress · ✅ done and tested · ⚠ hardwa
 | Projects | CRUD, instructions, knowledge uploads, scoped chats, archive | M7 | Full | ✅ |
 | Projects | Retrieval (BM25 + per-project FAISS), project search, isolation | M7 | Full; vectors once an embedding model is installed | ✅ |
 | Projects | Export (zip) / delete (incl. index + files) | M7 | Full | ✅ |
-| Memory | 5 memory kinds, CRUD, inspect, search, rank | M8 | Full | ⬜ |
-| Memory | Conversation summarisation | M8 | Full (uses a 3B model for speed) | ⬜ |
+| Memory | 5 memory kinds, CRUD, inspect, search, rank, export, delete all | M8 | Full | ✅ |
+| Memory | Conversation summarisation (manual + automatic rolling summary) | M8 | Full; uses the chat's model | ✅ |
 | Artifacts | HTML/CSS/JS, SVG, Markdown, Mermaid, React, charts | M9 | Full (React via vendored Babel, offline) | ⬜ |
 | Artifacts | Editor, versions, diff, fullscreen, export | M9 | Full | ⬜ |
 | Agents | Planner, multi-step, retry, cancel, approvals, history | M10 | Full; reliability depends on model (7B recommended) | ⬜ |
@@ -35,7 +35,7 @@ Status: ⬜ not started · 🟨 in progress · ✅ done and tested · ⚠ hardwa
 | Agents | Sandboxed Python | M10 | Docker tier full; fallback tier ⚠ reduced isolation | ⬜ |
 | Intelligence | Document QA over attachments (full text or ranked excerpts) | M6 | Full; keyword ranking until an embedding model is installed | ✅ |
 | Intelligence | Project-wide RAG (FAISS) | M7 | Full | ✅ |
-| Intelligence | Conversation summarisation | M8 | Full | ⬜ |
+| Intelligence | Conversation summarisation | M8 | Full | ✅ |
 | Intelligence | JSON mode / structured output | M5 | Full (Ollama `format: json` + validity check) | ✅ |
 | Intelligence | Tool calling | M10 | Native where supported, JSON fallback otherwise | ⬜ |
 | Intelligence | Prompt templates | M5 | Full | ✅ |

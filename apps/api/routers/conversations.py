@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
+import structlog
 from fastapi import APIRouter, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
+from core.inference.provider import ProviderError
 from core.inference.types import GenerationParams
 from core.orchestrator.chat_turn import message_payload, stream_turn
 from models.registry import service as registry
@@ -15,14 +18,17 @@ from services.audit import service as audit
 from services.conversation import service as conversations
 from services.conversation.context import build_turn
 from services.conversation.service import MessageTree
+from services.memory import service as memory
 from services.settings import service as settings_service
 from storage.database.models import Attachment, Conversation, Folder, Message, ModelRecord, Project
 
 from ..deps import DatabaseDep, DbDep, GatewayDep, SettingsDep
 from ..security import CsrfSessionDep, SessionDep, api_error, client_ip
 from ..streaming import EventStreamResponse
+from .memories import MemoryOut
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
+log = structlog.get_logger("clawde.api.conversations")
 
 MAX_MESSAGE_CHARS = 100_000
 SSE_RESPONSES: dict[int | str, dict[str, Any]] = {
@@ -82,6 +88,8 @@ class MessageOut(BaseModel):
     #: Ids of this message and its alternatives (edits / regenerations), oldest first.
     sibling_ids: list[str] = []
     attachments: list[AttachmentBrief] = []
+    #: Saved memories that were in context for this reply (may include since-deleted ids).
+    memory_ids: list[str] | None = None
 
 
 class ConversationDetail(ConversationOut):
@@ -260,6 +268,7 @@ async def _start_stream(
             update={"context_length": min(params.context_length, model.context_length)}
         )
     project = await db.get(Project, conv.project_id) if conv.project_id else None
+    prefs = await settings_service.load(db)
     turn = await build_turn(
         db,
         gateway,
@@ -269,19 +278,28 @@ async def _start_stream(
         params,
         project=project,
         indexes_dir=settings.indexes_dir,
+        conversation=conv,
+        use_memory=prefs.memory_enabled,
     )
+    assistant.memory_ids = turn.memory_ids or None
+    await db.commit()
     start: dict[str, Any] = {
         "conversation": ConversationOut.model_validate(conv).model_dump(mode="json"),
         "user_message": message_payload(user_message) if user_message else None,
         "assistant_message": message_payload(assistant),
         "history_messages_dropped": turn.dropped,
         "documents": turn.documents,
+        "memory": turn.memory,
     }
     assistant_id = assistant.id
+    conv_id = conv.id
+    auto_summarise = prefs.memory_auto_summarise and turn.dropped > 0
 
     async def on_close() -> None:
-        active.discard(conv.id)
+        active.discard(conv_id)
         await conversations.cancel_if_streaming(database.sessionmaker, assistant_id)
+        if auto_summarise:
+            schedule_summary(request, database, gateway, conv_id, model.id, params.context_length)
 
     active.add(conv.id)
     events = stream_turn(
@@ -295,6 +313,80 @@ async def _start_stream(
         initial_content=initial_content,
     )
     return EventStreamResponse(events, on_close=on_close)
+
+
+def schedule_summary(
+    request: Request,
+    database: DatabaseDep,
+    gateway: GatewayDep,
+    conversation_id: str,
+    model_id: str,
+    context_length: int,
+) -> None:
+    """Refresh the conversation's summary in the background once its history overflows the context window."""
+    busy: set[str] = request.app.state.summarising
+    if conversation_id in busy:
+        return
+    busy.add(conversation_id)
+
+    async def run() -> None:
+        try:
+            async with database.sessionmaker() as db:
+                conv = await db.get(Conversation, conversation_id)
+                rec = await db.get(ModelRecord, model_id)
+                if conv is None or rec is None or not await memory.needs_summary(db, conv):
+                    return
+                await memory.summarise(db, gateway, conv, rec, context_length=context_length)
+                await db.commit()
+                log.info("memory.auto_summarised", conversation_id=conversation_id)
+        except (ProviderError, memory.MemoryError) as exc:
+            log.warning("memory.auto_summary_failed", conversation_id=conversation_id, error=str(exc))
+        finally:
+            busy.discard(conversation_id)
+
+    tasks: set[asyncio.Task[None]] = request.app.state.background_tasks
+    task = asyncio.create_task(run())
+    tasks.add(task)
+    task.add_done_callback(tasks.discard)
+
+
+class SummariseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model_id: str | None = Field(default=None, max_length=300)
+    context_length: int = Field(default=8192, ge=512, le=131_072)
+
+
+@router.post("/{conversation_id}/summarise", response_model=MemoryOut)
+async def summarise_conversation(
+    conversation_id: str,
+    body: SummariseRequest,
+    request: Request,
+    _: CsrfSessionDep,
+    db: DbDep,
+    gateway: GatewayDep,
+) -> MemoryOut:
+    """Summarise the current branch with a model and save it as this conversation's summary memory
+    (replacing the previous one)."""
+    conv = await _get_conversation(db, conversation_id)
+    model = await _resolve_model(db, gateway, body.model_id, conv)
+    try:
+        mem = await memory.summarise(db, gateway, conv, model, context_length=body.context_length)
+    except memory.MemoryError as exc:
+        raise api_error(exc.status, exc.code, exc.message) from exc
+    except ProviderError as exc:
+        raise api_error(status.HTTP_502_BAD_GATEWAY, exc.code, str(exc)) from exc
+    await audit.record(
+        db,
+        "memory.summarise",
+        target_type="conversation",
+        target_id=conv.id,
+        details={"memory_id": mem.id, "model_id": model.id},
+        client_ip=client_ip(request),
+    )
+    await db.commit()
+    await db.refresh(mem)
+    return MemoryOut.model_validate(mem).model_copy(update={"conversation_title": conv.title})
 
 
 # ---- Listing, search, CRUD ----
