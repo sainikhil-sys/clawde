@@ -41,6 +41,8 @@ class FakeProvider:
         default_factory=lambda: [fake_model("tiny"), fake_model("embedder", capabilities=("embedding",))]
     )
     reply: Sequence[str] = ("Hello", ", ", "world", "!")
+    #: Replies for successive calls (each a full text); `reply` is used once the script runs out.
+    script: list[str] = field(default_factory=list)
     token_delay: float = 0.0
     fail_with: ProviderError | None = None
     fail_after_tokens: int | None = None
@@ -71,7 +73,8 @@ class FakeProvider:
                 raise ModelNotFound(f"no model {ref}")
             if self.fail_with is not None and self.fail_after_tokens is None:
                 raise self.fail_with
-            for i, tok in enumerate(self.reply):
+            tokens = (self.script.pop(0),) if self.script else self.reply
+            for i, tok in enumerate(tokens):
                 if self.fail_with is not None and self.fail_after_tokens == i:
                     raise self.fail_with
                 if self.token_delay:

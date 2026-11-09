@@ -3,7 +3,7 @@
 A local-first, offline-capable AI assistant platform: chat, projects, memory, artifacts, agents, a model library
 and a research and training studio. It runs on open-weight models and needs no paid APIs.
 
-**Status:** Milestones 1–9 done; agents arrive in Milestone 10. What works today:
+**Status:** Milestones 1–10 done; model management arrives in Milestone 11. What works today:
 - Chat with any model installed in Ollama: Markdown and highlighted code, editing, regenerating, continuing and
   retrying (with version history), stop, search, folders, pin/archive, export, prompt templates and JSON mode.
 - File attachments (PDF, Word, Excel, CSV, JSON, Markdown, text, source code, images) that the model reads.
@@ -12,6 +12,9 @@ and a research and training studio. It runs on open-weight models and needs no p
   knowledge, temporary context).
 - Artifacts (web pages, React components, SVG, Markdown, Mermaid diagrams, charts, JavaScript, code) with live
   preview in an isolated sandbox, a source editor, version history, comparison, full screen and export.
+- Agents that plan and use tools (workspace files, document/knowledge/project search, calculator, JSON,
+  sandboxed Python), with per-tool permissions, approval before writing files or running code, cancel, retry
+  and full step history.
 
 ## Requirements
 
@@ -97,6 +100,9 @@ core/orchestrator/   One chat turn: stream, forward, persist (incl. stop/cancel)
 core/context/        Fitting history into the model's context window
 core/memory/         Memory ranking policy and how memory is shown to the model
 core/artifacts/      Finding artifact blocks in replies; instructions for models
+core/tools/          Agent tools (typed arguments, risk levels) and the registry
+core/permissions/    Tool permission policies (write/execute can never run without approval)
+core/agents/         Agent prompts and response parsing
 models/adapters/     Ollama adapter (llama.cpp and Transformers adapters come in M11)
 models/registry/     Model registry synced from providers
 services/            audit/, settings/, conversation/: business logic used by the API
@@ -108,6 +114,8 @@ services/attachments/ Upload storage, background processing, model context
 services/projects/   Project listing, search, export, deletion
 services/memory/     Memory storage, scope rules, recall for chat turns, summaries
 services/artifacts/  Artifact storage, versions, restore, extraction from replies
+services/agents/     Agent runs: plan, tool loop, approvals, cancellation, events
+services/sandbox/    Python sandbox (Docker container, or a limited local process)
 storage/vector_index/ Per-scope FAISS indexes (one per project)
 tests/backend/       API, database and migration tests
 tests/security/      Path safety tests

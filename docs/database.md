@@ -150,5 +150,19 @@ conversations `ON DELETE CASCADE` (null for artifacts made on the Artifacts page
 (model|user|restore), `message_id` (reply that produced it; indexed, no FK), `note`, `created_at`. Versions are
 never modified; edits and restores append.
 
-Planned tables (models, agent runs, evaluations, research
+## Revision `0008_agents` (Milestone 10)
+
+### agent_runs
+`id`, `task`, `status` (planning|running|waiting_approval|completed|failed|cancelled|interrupted, indexed),
+`model_id`, `project_id` FK → projects `ON DELETE CASCADE` (the run's scope), `plan` JSON, `result`, `error`,
+`max_steps`, `retry_of`, `created_at` (indexed), `updated_at`, `finished_at`.
+
+### agent_steps
+`id`, `run_id` FK → agent_runs `ON DELETE CASCADE`, `index`, `kind` (plan|tool|final|error|note), `thought`,
+`tool`, `args` JSON, `status` (pending|waiting_approval|running|done|error|denied|cancelled), `approval`
+(auto|approved|denied|policy_denied), `output`, `data` JSON, `error`, `created_at`, `finished_at`.
+
+Tool permissions are a setting (`settings.tool_permissions`), not a table.
+
+Planned tables (models, evaluations, research
 runs) are listed in `docs/02-architecture.md` §5 and arrive with their milestones.

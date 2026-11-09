@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
@@ -26,6 +26,8 @@ class AppSettings(BaseModel):
     memory_auto_summarise: bool = True
     #: Tell models they can create artifacts (Milestone 9).
     artifacts_enabled: bool = True
+    #: Per-tool agent permission: auto | ask | deny (Milestone 10), checked against each tool's risk.
+    tool_permissions: dict[str, Literal["auto", "ask", "deny"]] = Field(default_factory=dict)
 
 
 class AppSettingsPatch(BaseModel):
@@ -36,6 +38,7 @@ class AppSettingsPatch(BaseModel):
     memory_enabled: bool | None = None
     memory_auto_summarise: bool | None = None
     artifacts_enabled: bool | None = None
+    tool_permissions: dict[str, Literal["auto", "ask", "deny"]] | None = None
 
 
 async def load(db: AsyncSession) -> AppSettings:

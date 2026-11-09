@@ -50,6 +50,15 @@ describe("splitArtifacts", () => {
     expect(kindForLanguage("html")).toEqual({ kind: "html", language: null });
     expect(kindForLanguage("python")).toEqual({ kind: "code", language: "python" });
     expect(kindForLanguage(undefined)).toEqual({ kind: "code", language: null });
+    // Unlabelled or mislabelled markup: the content decides.
+    expect(kindForLanguage("php-template", "<html> <body><h1>Hi</h1></body> </html>")).toEqual({
+      kind: "html",
+      language: null,
+    });
+    expect(kindForLanguage(undefined, '<svg viewBox="0 0 1 1"></svg>')).toEqual({ kind: "svg", language: null });
+    expect(kindForLanguage("xml", "<note><to>x</to></note>")).toEqual({ kind: "code", language: "xml" });
+    expect(kindForLanguage("bash", '<h1 id="greet">Hello</h1>')).toEqual({ kind: "html", language: null });
+    expect(kindForLanguage("python", 'print("<p>")')).toEqual({ kind: "code", language: "python" });
   });
 });
 

@@ -31,9 +31,10 @@ Status: ⬜ not started · 🟨 in progress · ✅ done and tested · ⚠ hardwa
 | Artifacts | HTML/CSS/JS, SVG, Markdown, Mermaid, React, charts, JavaScript, code | M9 | Full (offline; vendored React/Babel/Mermaid/Chart.js) | ✅ |
 | Artifacts | Editor, versions, diff, restore, fullscreen, copy, export | M9 | Full | ✅ |
 | Artifacts | Isolated sandbox (separate origin, opaque iframe, no network) | M9 | Full | ✅ |
-| Agents | Planner, multi-step, retry, cancel, approvals, history | M10 | Full; reliability depends on model (7B recommended) | ⬜ |
-| Agents | Tools: file read/write, doc search, calculator, JSON, knowledge, project search | M10 | Full | ⬜ |
-| Agents | Sandboxed Python | M10 | Docker tier full; fallback tier ⚠ reduced isolation | ⬜ |
+| Agents | Planner, multi-step, retry, cancel, approvals, history, live updates | M10 | Full; reliability depends on model (7B recommended) | ✅ |
+| Agents | Tools: file read/list/write, doc search, calculator, JSON, knowledge, project search | M10 | Full | ✅ |
+| Agents | Tool permissions (allow / ask / off; write and execute always ask), workspace confinement, audit | M10 | Full | ✅ |
+| Agents | Sandboxed Python | M10 | Fallback ✅ (⚠ reduced isolation, labelled); Docker tier built, not yet run on a real engine | ✅ |
 | Intelligence | Document QA over attachments (full text or ranked excerpts) | M6 | Full; keyword ranking until an embedding model is installed | ✅ |
 | Intelligence | Project-wide RAG (FAISS) | M7 | Full | ✅ |
 | Intelligence | Conversation summarisation | M8 | Full | ✅ |

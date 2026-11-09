@@ -95,6 +95,11 @@ class Settings(BaseSettings):
     def indexes_dir(self) -> Path:
         return self.data_dir / "indexes"
 
+    @property
+    def workspace_dir(self) -> Path:
+        """The only folder agent file tools can read and write."""
+        return self.data_dir / "workspace"
+
 
 @lru_cache
 def get_settings() -> Settings:

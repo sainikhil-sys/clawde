@@ -1,21 +1,18 @@
 import type { Metadata } from "next";
-import { Bot } from "lucide-react";
 
-import { EmptyState, Page, PageHeader } from "@/components/page/page";
+import { AgentsIndex } from "@/components/agents/agents-index";
+import { Page, PageHeader } from "@/components/page/page";
 
 export const metadata: Metadata = { title: "Agents" };
 
 export default function AgentsPage() {
   return (
-    <Page>
+    <Page className="max-w-6xl">
       <PageHeader
         title="Agents"
-        description="Hand off multi-step tasks. An agent plans, uses permitted tools and pauses for your approval before anything sensitive, such as writing files or running code."
+        description="Hand off multi-step tasks. An agent plans, uses the tools you allow, and pauses for your approval before writing files or running code. Every run keeps a full step-by-step history."
       />
-      <EmptyState icon={Bot} title="No agent runs yet" milestone={10}>
-        Agents need the tool registry, permission system and code sandbox. Every run will keep a full step-by-step
-        history you can inspect.
-      </EmptyState>
+      <AgentsIndex />
     </Page>
   );
 }

@@ -39,6 +39,8 @@ EXPECTED_TABLES = {
     "memories",
     "artifacts",
     "artifact_versions",
+    "agent_runs",
+    "agent_steps",
 }
 
 
@@ -68,7 +70,7 @@ def test_migrations_match_models(tmp_path: Path) -> None:
 
 
 def test_head_revision_is_single() -> None:
-    assert migrate.head_revision() == "0007_artifacts"
+    assert migrate.head_revision() == "0008_agents"
 
 
 async def test_foreign_keys_enforced_and_cascade(tmp_path: Path) -> None:

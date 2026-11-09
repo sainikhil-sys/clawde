@@ -186,6 +186,8 @@ export type AppSettings = {
   memory_auto_summarise: boolean;
   /** Tell models they can create artifacts. */
   artifacts_enabled: boolean;
+  /** Per-tool agent permission overrides (see /api/agents/tools for what is in force). */
+  tool_permissions: Record<string, ToolPolicy>;
 };
 
 export type MessageStatus = "streaming" | "complete" | "error" | "cancelled";
@@ -241,6 +243,67 @@ export type DocumentUse = {
     image_visible: boolean | null;
   }[];
 };
+
+export type ToolPolicy = "auto" | "ask" | "deny";
+export type ToolRisk = "read" | "compute" | "write" | "execute";
+export type AgentTool = {
+  name: string;
+  description: string;
+  risk: ToolRisk;
+  policy: ToolPolicy;
+  allowed: ToolPolicy[];
+  needs_project: boolean;
+};
+export type AgentRunStatus =
+  "planning" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled" | "interrupted";
+export const ACTIVE_RUN_STATUSES: AgentRunStatus[] = ["planning", "running", "waiting_approval"];
+export type AgentRun = {
+  id: string;
+  task: string;
+  status: AgentRunStatus;
+  model_id: string;
+  project_id: string | null;
+  plan: string[];
+  result: string | null;
+  error: string | null;
+  max_steps: number;
+  retry_of: string | null;
+  created_at: string;
+  updated_at: string;
+  finished_at: string | null;
+};
+export type AgentStep = {
+  id: string;
+  run_id: string;
+  index: number;
+  kind: "plan" | "tool" | "final" | "error" | "note";
+  thought: string;
+  tool: string | null;
+  risk: ToolRisk | null;
+  args: Record<string, unknown>;
+  status: "pending" | "waiting_approval" | "running" | "done" | "error" | "denied" | "cancelled";
+  approval: "auto" | "approved" | "denied" | "policy_denied" | null;
+  output: string;
+  data: Record<string, unknown>;
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
+};
+export type AgentRunDetail = AgentRun & { steps: AgentStep[] };
+export type SandboxStatus = {
+  docker: "ready" | "no_image" | "not_running" | "not_installed";
+  image: string;
+  detail: string;
+  fallback_limits: string;
+  active_tier: "docker" | "fallback";
+  network_access_enabled: boolean;
+};
+export type WorkspaceFile = { path: string; size: number; modified: string };
+export type AgentEvent =
+  | { event: "snapshot"; data: AgentRunDetail }
+  | { event: "run"; data: { run: AgentRun } }
+  | { event: "step"; data: { step: AgentStep } }
+  | { event: "ping"; data: Record<string, never> };
 
 export const ARTIFACT_KINDS = ["html", "react", "svg", "markdown", "mermaid", "chart", "javascript", "code"] as const;
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
@@ -515,6 +578,34 @@ export const api = {
     return { blob: await resp.blob(), filename };
   },
   deleteTemplate: (id: string) => apiRequest<void>(`/api/templates/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  agentTools: (signal?: AbortSignal) => apiRequest<AgentTool[]>("/api/agents/tools", { signal }),
+  updateToolPermissions: (permissions: Record<string, ToolPolicy>) =>
+    apiRequest<AgentTool[]>("/api/agents/permissions", { method: "PUT", body: { tool_permissions: permissions } }),
+  sandboxStatus: (refresh = false, signal?: AbortSignal) =>
+    apiRequest<SandboxStatus>(`/api/agents/sandbox${refresh ? "?refresh=true" : ""}`, { signal }),
+  prepareSandbox: () => apiRequest<SandboxStatus>("/api/agents/sandbox/prepare", { method: "POST" }),
+  workspaceFiles: (signal?: AbortSignal) => apiRequest<WorkspaceFile[]>("/api/agents/workspace", { signal }),
+  downloadWorkspaceFile: async (path: string) => {
+    const resp = await apiFetch(`/api/agents/workspace/file?path=${encodeURIComponent(path)}`);
+    return { blob: await resp.blob(), filename: path.split("/").pop() ?? "file" };
+  },
+  deleteWorkspaceFile: (path: string) =>
+    apiRequest<void>(`/api/agents/workspace/file?path=${encodeURIComponent(path)}`, { method: "DELETE" }),
+  agentRuns: (signal?: AbortSignal) => apiRequest<AgentRun[]>("/api/agents/runs", { signal }),
+  agentRun: (id: string, signal?: AbortSignal) =>
+    apiRequest<AgentRunDetail>(`/api/agents/runs/${encodeURIComponent(id)}`, { signal }),
+  startAgentRun: (body: { task: string; model_id?: string; project_id?: string; max_steps?: number }) =>
+    apiRequest<AgentRunDetail>("/api/agents/runs", { method: "POST", body }),
+  cancelAgentRun: (id: string) =>
+    apiRequest<AgentRunDetail>(`/api/agents/runs/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
+  retryAgentRun: (id: string) =>
+    apiRequest<AgentRunDetail>(`/api/agents/runs/${encodeURIComponent(id)}/retry`, { method: "POST" }),
+  deleteAgentRun: (id: string) => apiRequest<void>(`/api/agents/runs/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  decideAgentStep: (runId: string, stepId: string, approve: boolean, note = "") =>
+    apiRequest<{ ok: true }>(
+      `/api/agents/runs/${encodeURIComponent(runId)}/steps/${encodeURIComponent(stepId)}/decision`,
+      { method: "POST", body: { approve, note } },
+    ),
   artifacts: (filter: { conversationId?: string; q?: string } = {}, signal?: AbortSignal) => {
     const q = new URLSearchParams();
     if (filter.conversationId) q.set("conversation_id", filter.conversationId);
@@ -694,4 +785,13 @@ export async function importMemoryFile(file: File, title?: string): Promise<Memo
     throw err;
   };
   return send(true);
+}
+
+/** Live updates for an agent run: a snapshot, then run/step changes until it finishes. */
+export async function* streamAgentRun(runId: string, signal: AbortSignal): AsyncGenerator<AgentEvent> {
+  const resp = await apiFetch(`/api/agents/runs/${encodeURIComponent(runId)}/events`, { signal });
+  if (!resp.body) return;
+  for await (const ev of parseSse(resp.body)) {
+    yield { event: ev.event, data: JSON.parse(ev.data) } as AgentEvent;
+  }
 }

@@ -1,6 +1,7 @@
 """ORM models. M3: sessions, audit log, settings, conversation core. M4: model registry.
 M5: active branch pointer, finish reasons, prompt templates. M6: attachments and document chunks.
-M7: project knowledge (attachments.project_id). M8: memories, messages.memory_ids. M9: artifacts and versions.
+M7: project knowledge (attachments.project_id). M8: memories, messages.memory_ids.
+M9: artifacts and versions. M10: agent runs and steps.
 
 Later milestones add their tables through new Alembic revisions (see docs/02-architecture.md §5).
 """
@@ -290,3 +291,50 @@ class ArtifactVersion(Base):
     message_id: Mapped[str | None] = mapped_column(String(32), index=True)
     note: Mapped[str] = mapped_column(String(300), default="")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class AgentRun(Base):
+    """One agent task: a plan, then tool-using steps until a final answer, failure or cancellation."""
+
+    __tablename__ = "agent_runs"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    task: Mapped[str] = mapped_column(Text)
+    #: planning | running | waiting_approval | completed | failed | cancelled | interrupted
+    status: Mapped[str] = mapped_column(String(20), default="planning", index=True)
+    model_id: Mapped[str] = mapped_column(String(300))
+    #: Scope for project search / document search. The agent can't change it.
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    plan: Mapped[list[str]] = mapped_column(JSON, default=list)
+    result: Mapped[str | None] = mapped_column(Text)
+    error: Mapped[str | None] = mapped_column(Text)
+    max_steps: Mapped[int] = mapped_column(Integer, default=12)
+    #: Run this one was retried from.
+    retry_of: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column()
+
+
+class AgentStep(Base):
+    """A step of a run. Tool calls record their arguments, the approval decision and the result."""
+
+    __tablename__ = "agent_steps"
+    __table_args__ = (Index("ix_agent_steps_run_index", "run_id", "index"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    run_id: Mapped[str] = mapped_column(ForeignKey("agent_runs.id", ondelete="CASCADE"))
+    index: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[str] = mapped_column(String(20))  # plan | tool | final | error | note
+    thought: Mapped[str] = mapped_column(Text, default="")
+    tool: Mapped[str | None] = mapped_column(String(50))
+    args: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    #: pending | waiting_approval | running | done | error | denied | cancelled
+    status: Mapped[str] = mapped_column(String(20), default="done")
+    #: How the call was allowed: auto | approved | denied | policy_denied (null for non-tool steps)
+    approval: Mapped[str | None] = mapped_column(String(20))
+    output: Mapped[str] = mapped_column(Text, default="")
+    data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column()

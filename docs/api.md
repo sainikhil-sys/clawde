@@ -26,7 +26,7 @@ Base URL: `http://127.0.0.1:8000`. With the API running, live OpenAPI docs are a
 | POST | `/api/session` | allowed `Origin` | Creates a session, sets cookie, returns `{csrf_token, created_at, expires_at}` (201) |
 | GET | `/api/session` | cookie | Returns the current session's CSRF token (used after a page reload) |
 | DELETE | `/api/session` | cookie + CSRF | Ends the session and clears the cookie (204) |
-| GET | `/api/settings` | cookie | `{network_access_enabled, default_model, memory_enabled, memory_auto_summarise, artifacts_enabled}` |
+| GET | `/api/settings` | cookie | `{network_access_enabled, default_model, memory_enabled, memory_auto_summarise, artifacts_enabled, tool_permissions}` |
 | PATCH | `/api/settings` | cookie + CSRF | Partial update; unknown keys → 422; changes are audited |
 | GET | `/api/audit?limit=50&before_id=` | cookie | Newest-first audit events, `{events, next_before_id}` |
 | GET | `/api/models?include_unavailable=false` | cookie | Syncs the registry with all providers, returns `{models, providers}`. Each model has `chat: bool` |
@@ -48,6 +48,16 @@ Base URL: `http://127.0.0.1:8000`. With the API running, live OpenAPI docs are a
 | GET/POST | `/api/projects/{id}/knowledge` | cookie (+ CSRF) | List knowledge files / upload one (multipart `file`; same validation as attachments) |
 | GET | `/api/projects/{id}/search?q=` | cookie | `[{kind: conversation\|knowledge, id, title, snippet}]`, this project only |
 | GET | `/api/projects/{id}/export` | cookie | Zip: `project.json`, `conversations/*.json`, `knowledge/` (+ `knowledge/extracted/*.txt`) |
+| GET | `/api/agents/tools` | cookie | Tools with `risk`, the `policy` in force and the `allowed` policies |
+| PUT | `/api/agents/permissions` | cookie + CSRF | `{tool_permissions: {name: auto\|ask\|deny}}`; write/execute tools can't be `auto` (400) |
+| GET | `/api/agents/sandbox?refresh=` | cookie | Python sandbox status: `docker` (ready\|no_image\|not_running\|not_installed), `active_tier` |
+| POST | `/api/agents/sandbox/prepare` | cookie + CSRF | Pulls the Docker image; 403 `network_disabled` unless network access is on (audited) |
+| GET/DELETE | `/api/agents/workspace[/file?path=]` | cookie (+ CSRF) | List workspace files / download one (attachment) / delete one (audited) |
+| GET/POST | `/api/agents/runs` | cookie (+ CSRF) | History / start `{task, model_id?, project_id?, max_steps 1-40}` (max 2 active; 409) |
+| GET/DELETE | `/api/agents/runs/{id}` | cookie (+ CSRF) | Run with steps / delete a finished run |
+| GET | `/api/agents/runs/{id}/events` | cookie | SSE: `snapshot`, then `run` / `step` updates until the run ends |
+| POST | `/api/agents/runs/{id}/cancel` \| `/retry` | cookie + CSRF | Cancel an active run / start a new run with the same task |
+| POST | `/api/agents/runs/{id}/steps/{step}/decision` | cookie + CSRF | `{approve, note?}` for a step waiting for approval (409 otherwise) |
 | GET/POST | `/api/artifacts?conversation_id=&q=` | cookie (+ CSRF) | List (newest first, with `version_count`) / create `{kind, title, content, language?, conversation_id?, source_message_id?}` |
 | GET/PATCH/DELETE | `/api/artifacts/{id}` | cookie (+ CSRF) | Read (with current `content`) / rename `{title}` / delete (audited) |
 | PUT | `/api/artifacts/{id}/content` | cookie + CSRF | `{content, note?}` → new version → `{artifact, changed}` (`changed: false` when identical) |

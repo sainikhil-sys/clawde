@@ -137,11 +137,21 @@ test.describe("with a local model", () => {
     );
     await composer.press("Enter");
     const reply = page.locator("article").last();
-    await expect(reply).toHaveAttribute("aria-busy", "false", { timeout: 150_000 });
-    await reply.getByRole("button", { name: "Open as artifact" }).first().click();
+    const openButton = reply.getByRole("button", { name: "Open as artifact" }).first();
+    // This checks the app, not the model: if the model ignores the instruction and sends no code block,
+    // regenerate (up to 3 tries) until there is one.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await expect(reply).toHaveAttribute("aria-busy", "false", { timeout: 150_000 });
+      if (await openButton.isVisible()) break;
+      await reply.getByRole("button", { name: "Regenerate reply" }).click();
+      await expect(reply).toHaveAttribute("aria-busy", "true", { timeout: 30_000 });
+    }
+    await openButton.click();
     const panel = page.getByRole("complementary", { name: "Artifact panel" });
     await expect(panel).toBeVisible();
-    await expect(panel.frameLocator('[data-testid="artifact-frame"]').getByText("Hello Clawde")).toBeVisible({
+    // An unlabelled or labelled HTML block opens as a previewable HTML artifact, not plain code.
+    await expect(panel.getByRole("region")).toContainText("HTML · version 1");
+    await expect(panel.frameLocator('[data-testid="artifact-frame"]').locator("h1")).toBeAttached({
       timeout: 30_000,
     });
   });

@@ -127,11 +127,26 @@ export function splitArtifacts(content: string, finished = false): Segment[] {
   return segments;
 }
 
-/** Artifact kind for a fenced code block's language (for "Open as artifact"). */
-export function kindForLanguage(language: string | undefined): { kind: ArtifactKind; language: string | null } {
+const HTML_START =
+  /^<(!doctype html|html|head|body|div|h[1-6]|p|main|section|style|script|table|ul|ol|form|button|canvas)\b/;
+
+/**
+ * Artifact kind for a fenced code block (for "Open as artifact").
+ *
+ * A label that names an artifact kind (html, jsx, svg, mermaid…) is trusted. Otherwise the content decides when
+ * it is clearly markup: small models mislabel HTML (seen: "bash"), and unlabelled blocks get a guessed language
+ * from the highlighter ("xml", "php-template"). No program in another language starts with an HTML tag.
+ */
+export function kindForLanguage(
+  language: string | undefined,
+  code = "",
+): { kind: ArtifactKind; language: string | null } {
   const lang = (language ?? "").toLowerCase();
   const kind = KIND_ALIASES[lang];
   if (kind) return { kind, language: null };
+  const head = code.trimStart().slice(0, 200).toLowerCase();
+  if (head.startsWith("<svg")) return { kind: "svg", language: null };
+  if (HTML_START.test(head)) return { kind: "html", language: null };
   if (lang === "json") return { kind: "code", language: "json" };
   return { kind: "code", language: lang || null };
 }

@@ -196,7 +196,7 @@ export function ChatView({
     onRemember: conversationId ? (message) => setRemembering(message) : undefined,
     onOpenArtifact: (ref) => setOpenArtifact(ref),
     onCodeToArtifact: (message, language, code) => {
-      const { kind, language: lang } = kindForLanguage(language);
+      const { kind, language: lang } = kindForLanguage(language, code);
       const title = (/<title>([^<]{1,80})<\/title>/i.exec(code)?.[1] ?? `${language ?? "Code"} snippet`).trim();
       api
         .createArtifact({ kind, language: lang ?? undefined, title, content: code, source_message_id: message.id })

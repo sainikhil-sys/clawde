@@ -14,16 +14,20 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from core.inference.gateway import InferenceGateway
 from core.inference.provider import ModelProvider
+from core.tools import default_registry
 from models.adapters.ollama import OllamaProvider
+from services.agents.manager import AgentManager
 from services.attachments import service as attachments
 from services.conversation import service as conversations
 from services.memory import service as memory
+from services.sandbox.python_runner import PythonSandbox
 from storage.database import migrate
 from storage.database.engine import Database
 
 from .config import APP_VERSION, Settings, get_settings
 from .logging_setup import configure_logging
 from .middleware import BodySizeLimitMiddleware, OriginCheckMiddleware, RequestContextMiddleware
+from .routers import agents as agents_router
 from .routers import artifacts as artifacts_router
 from .routers import attachments as attachments_router
 from .routers import audit, folders, health, memories, models, projects, session, settings, templates
@@ -76,6 +80,17 @@ def create_app(
         app.state.gateway = gateway
         app.state.active_generations = set()
         app.state.summarising = set()
+        agents = AgentManager(
+            sessionmaker=database.sessionmaker,
+            gateway=gateway,
+            tools=default_registry(),
+            workspace=cfg.workspace_dir,
+            services={"python": PythonSandbox(cfg.data_dir / "tmp" / "sandbox")},
+        )
+        interrupted = await agents.recover()
+        if interrupted:
+            log.warning("api.agent_runs_interrupted", count=interrupted)
+        app.state.agents = agents
         app.state.background_tasks = set(
             await attachments.resume_unfinished(database.sessionmaker, gateway, cfg.uploads_dir)
         )
@@ -93,6 +108,7 @@ def create_app(
             for task in list(app.state.background_tasks):
                 task.cancel()
             await asyncio.gather(*app.state.background_tasks, return_exceptions=True)
+            await agents.shutdown()
             await gateway.aclose()
             await database.dispose()
             log.info("api.stopped")
@@ -120,6 +136,7 @@ def create_app(
         projects.router,
         memories.router,
         artifacts_router.router,
+        agents_router.router,
     ):
         app.include_router(router, prefix=api_prefix)
 

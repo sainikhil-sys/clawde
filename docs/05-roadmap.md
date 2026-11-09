@@ -17,7 +17,7 @@ chat is model-independent from day one. M11 then builds the full Model Library U
 | 7 | Projects | Project CRUD, instructions, knowledge, scoped chats, per-project FAISS, search, export/delete | ✅ Done: see progress log |
 | 8 | Memory & retrieval | 5 memory kinds, CRUD/inspect UI, ranking, summarisation, context budgeting | ✅ Done: see progress log |
 | 9 | Artifacts | Sandbox origin server, iframe runtime, all artifact types, editor, versions, diff, fullscreen, export | ✅ Done: see progress log |
-| 10 | Agents & permissions | Tool registry, 8 tools, planner/executor, approvals UI, retry, cancel, history, Docker + fallback sandbox | 🧪 denied tool never runs; write outside workspace blocked; cancel mid-run |
+| 10 | Agents & permissions | Tool registry, 8 tools, planner/executor, approvals UI, retry, cancel, history, Docker + fallback sandbox | ✅ Done: see progress log |
 | 11 | Model management | Model Library UI, llama.cpp + Transformers adapters, import/download/remove, metadata/licence/fit, behaviour profiles, router, RAM/GPU monitor, eval harness v1 (incl. refusal behaviour) | 🧪 switch models mid-conversation; router picks capable model that fits RAM |
 | 12 | Research Studio | Datasets, tokenizer lab, tiny-transformer training, LoRA fine-tune on 0.5B model, logs (SSE), checkpoints, adapters, benchmarks, comparison | 🧪 a real (tiny) training run completes and is tracked; UI marks "training" vs "inference" clearly |
 | 13 | Testing & optimisation | Full test pass, offline verification (network disabled), performance tuning, data export/delete-all, final docs (install, API via OpenAPI, schemas, limitations) | All acceptance criteria in the brief verified and recorded |
@@ -335,6 +335,58 @@ Fixed during verification:
 Notes: the in-app browser used during development blocks the cross-origin sandbox frame, so preview behaviour was
 verified in Edge through Playwright.
 
+### Milestone 10: agents and permissions (2026-11-09)
+Built:
+- Tools (`core/tools`), each with typed arguments (Pydantic → JSON Schema) and a risk level: `read_file`,
+  `list_files`, `write_file` (workspace only), `search_documents`, `search_knowledge` (memory), `search_project`
+  (project-scoped runs only), `calculator` (AST evaluator, no `eval`), `json` (validate/format/keys/query) and
+  `python` (sandbox).
+- Permissions (`core/permissions`): each tool is Allow / Ask first / Off. Writing files and running code can only
+  be Ask or Off; a stored "allow" for them is ignored, so the safeguard can't be switched off (even through the
+  generic settings endpoint). Turned-off tools are never offered to the model and never run if it asks anyway.
+- Agent loop (`services/agents`): the model writes a plan, then answers in JSON (Ollama JSON mode) with one tool
+  call or a final answer per turn. Invalid replies, unknown tools, bad arguments and tool errors are fed back so
+  the model can recover (3 unusable replies in a row fail the run); model errors retry twice with backoff; a step
+  limit stops loops. Tool results are wrapped as data, and the prompt says never to follow instructions in them.
+  Runs execute in the background, stream live updates over SSE, pause for approvals, can be cancelled at any
+  point (including mid-reply or while waiting), retried and deleted. Runs that were active when the API stopped
+  are marked interrupted at startup. Starts, approvals, denials, writes, code runs and cancels are audited.
+- Workspace: `<data_dir>/workspace` is the only folder the file tools can touch (`safe_join`: no absolute paths,
+  no `..`, links that lead outside are refused; text files only). The Agents page lists, downloads and deletes its
+  files.
+- Python sandbox (`services/sandbox`): Docker when it's running and the image is present (no network, read-only
+  root, 512 MB, 1 CPU, 64 processes, all capabilities dropped, no new privileges, unprivileged user, no host
+  mounts). Downloading the image is an internet request, so it's refused unless network access is on in Settings.
+  Otherwise a fallback process: the base Python interpreter in isolated mode in an empty temp folder, with none of
+  the user's environment variables, a 30 s timeout, output caps and a Windows Job Object (512 MB, no child
+  processes, killed on close). It is labelled "reduced isolation" (no filesystem or network isolation).
+- Web UI: Agents page (new task with model, project scope and step limit; history; sandbox status; tool
+  permissions; workspace files) and a run page (plan, live steps with arguments and results, an approval card
+  showing exactly what will be written or run, cancel, retry, delete).
+
+Verified:
+- 220 backend tests (2 live), including the acceptance checks: a tool that is off never runs and isn't offered;
+  a write the user denies never happens; writes outside the workspace (`..`, absolute paths, backslashes, other
+  drives) are refused even when approved; cancelling while waiting for approval or mid-reply stops the run and
+  nothing pending runs. The real fallback sandbox on this machine: environment stripped, a 600 MB allocation
+  fails, starting a child process fails, an infinite loop is killed at the timeout, output is capped. 84 frontend
+  tests.
+- With llama3.2 (end to end in Edge): "compute 17 × 23 and write it to answer.txt" planned, used the calculator,
+  waited for approval, and the file contains 391; a denied write never happened and the run could be cancelled.
+  Through the API, "1234 × 5678 to result.txt" produced 7006652.
+
+Fixed during verification:
+- The fallback sandbox failed every run: the virtualenv's `python.exe` is a launcher that starts the real
+  interpreter as a child process, which the Job Object (correctly) blocks. It now runs the base interpreter, which
+  also keeps the app's own packages out of reach.
+- "Open as artifact" (M9) turned llama3.2's HTML into plain code when the block was unlabelled (the highlighter
+  guessed "php-template") or mislabelled ("bash"). Blocks that start with an HTML or SVG tag now open as HTML/SVG
+  unless labelled as another artifact kind; the end-to-end test regenerates if the model sends no code block.
+
+Not verified: the Docker tier. Docker Desktop is installed here but its engine didn't start during this milestone,
+so container runs weren't exercised; the exact isolation flags are unit-tested, and the UI reports the fallback
+tier honestly.
+
 ## Known limitations (current)
 - CPU-only inference: 7B models run at about 5 tok/s, so small models are the default for interactivity.
 - Fine-tuning is limited to small base models; QLoRA and 7B training are out of scope without an NVIDIA GPU.
@@ -346,3 +398,6 @@ verified in Edge through Playwright.
 - Whether a model writes artifacts in the right format depends on the model; small models sometimes don't.
   "Open as artifact" on a code block always works. Artifacts can't load anything from the internet by design.
 - The app's CSP allows inline scripts (pages are prerendered, so per-request nonces aren't available).
+- Agents are only as good as the model: llama3.2 makes over-literal plans and sometimes ignores instructions.
+  Larger models (7B+) follow the protocol more reliably. Runs aren't resumed after an API restart.
+- The Docker sandbox tier hasn't been run against a real Docker engine yet (see Milestone 10).
