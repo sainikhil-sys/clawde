@@ -310,7 +310,13 @@ function AssistantMessage({
           </>
         )}
         <span className="ml-1 flex items-center gap-1.5">
-          {message.model_id && <span>{shortModelName(message.model_id)}</span>}
+          {message.model_id && (
+            <span title={routeTitle(message)}>
+              {message.route?.mode === "auto" ? "Auto: " : ""}
+              {shortModelName(message.model_id)}
+              {message.route?.profile ? ` · ${(message.route.profile as { name: string }).name}` : ""}
+            </span>
+          )}
           {message.status === "cancelled" && <span>· Stopped</span>}
           {message.status === "complete" && message.completion_tokens != null && (
             <span>· {message.completion_tokens} tokens</span>
@@ -365,4 +371,14 @@ function ReplyContent({
       )}
     </CodeBlockActions.Provider>
   );
+}
+
+function routeTitle(message: ChatMessage): string | undefined {
+  const r = message.route;
+  if (!r) return undefined;
+  const parts: string[] = [];
+  if (r.mode === "auto") parts.push(`Chosen automatically: ${String(r.reason ?? "")}`);
+  const profile = r.profile as { name: string; source: string } | null | undefined;
+  if (profile) parts.push(`Behaviour profile "${profile.name}" (from the ${profile.source})`);
+  return parts.join(". ") || undefined;
 }

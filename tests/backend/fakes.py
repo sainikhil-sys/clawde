@@ -11,6 +11,8 @@ from core.inference.types import (
     ChatMessage,
     GenerationDone,
     GenerationParams,
+    LoadedModel,
+    ModelDetails,
     ProviderModel,
     StreamEvent,
     TokenDelta,
@@ -86,12 +88,27 @@ class FakeProvider:
             self.streams_closed += 1
 
     embed_calls: list[list[str]] = field(default_factory=list)
+    #: Per-ref details returned by details() (model library tests).
+    model_details: dict[str, ModelDetails] = field(default_factory=dict)
+    #: Refs reported as loaded in memory, with their sizes; unload() removes them.
+    loaded_models: dict[str, int] = field(default_factory=dict)
+    unloaded: list[str] = field(default_factory=list)
 
     async def embed(self, ref: str, texts: Sequence[str]) -> list[list[float]]:
         """Deterministic toy vectors: counts of a few marker words, so similarity is testable."""
         self.embed_calls.append(list(texts))
         markers = ("ocean", "mountain", "finance", "python")
         return [[float(t.lower().count(w)) + 0.01 for w in markers] for t in texts]
+
+    async def details(self, ref: str) -> ModelDetails | None:
+        return self.model_details.get(ref)
+
+    async def loaded(self) -> list[LoadedModel]:
+        return [LoadedModel(ref, size) for ref, size in self.loaded_models.items()]
+
+    async def unload(self, ref: str) -> None:
+        self.unloaded.append(ref)
+        self.loaded_models.pop(ref, None)
 
     async def aclose(self) -> None:
         return None

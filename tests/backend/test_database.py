@@ -41,6 +41,9 @@ EXPECTED_TABLES = {
     "artifact_versions",
     "agent_runs",
     "agent_steps",
+    "behaviour_profiles",
+    "eval_runs",
+    "eval_results",
 }
 
 
@@ -70,7 +73,7 @@ def test_migrations_match_models(tmp_path: Path) -> None:
 
 
 def test_head_revision_is_single() -> None:
-    assert migrate.head_revision() == "0008_agents"
+    assert migrate.head_revision() == "0009_model_library"
 
 
 async def test_foreign_keys_enforced_and_cascade(tmp_path: Path) -> None:

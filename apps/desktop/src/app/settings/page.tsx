@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import { Page, PageHeader } from "@/components/page/page";
 import { ActivityLog } from "@/components/settings/activity-log";
+import { NetworkSetting } from "@/components/settings/network-setting";
 import { ThemeSetting } from "@/components/settings/theme-setting";
 import { ApiStatusPanel } from "@/components/status/api-status";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
@@ -42,6 +43,10 @@ export default function SettingsPage() {
           <ApiStatusPanel />
         </SettingsSection>
 
+        <SettingsSection title="Network" description="Off by default. Only downloads use it.">
+          <NetworkSetting />
+        </SettingsSection>
+
         <SettingsSection title="Privacy" description="How this build handles your data.">
           <ul className="list-disc space-y-2 pl-5 text-sm leading-relaxed text-muted-foreground">
             <li>The interface loads no external resources. Fonts and icons are bundled with the app.</li>
@@ -66,7 +71,7 @@ export default function SettingsPage() {
             <dt className="text-muted-foreground">Version</dt>
             <dd className="font-mono">{APP_VERSION}</dd>
             <dt className="text-muted-foreground">Build stage</dt>
-            <dd>Milestone 3: local API and database</dd>
+            <dd>Milestone 11: model library</dd>
           </dl>
         </SettingsSection>
       </div>

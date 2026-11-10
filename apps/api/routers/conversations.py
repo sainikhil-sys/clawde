@@ -15,6 +15,8 @@ from core.inference.provider import ProviderError
 from core.inference.types import GenerationParams
 from core.orchestrator.chat_turn import message_payload, stream_turn
 from models.registry import service as registry
+from services import profiles
+from services import router as auto_router
 from services.artifacts import service as artifacts
 from services.attachments import service as attachments
 from services.audit import service as audit
@@ -23,7 +25,16 @@ from services.conversation.context import build_turn
 from services.conversation.service import MessageTree
 from services.memory import service as memory
 from services.settings import service as settings_service
-from storage.database.models import Attachment, Conversation, Folder, Message, ModelRecord, Project
+from storage.database.base import utcnow
+from storage.database.models import (
+    Attachment,
+    BehaviourProfile,
+    Conversation,
+    Folder,
+    Message,
+    ModelRecord,
+    Project,
+)
 
 from ..deps import DatabaseDep, DbDep, GatewayDep, SettingsDep
 from ..security import CsrfSessionDep, SessionDep, api_error, client_ip
@@ -53,6 +64,7 @@ class ConversationOut(BaseModel):
     archived: bool
     model_id: str | None
     current_leaf_id: str | None
+    behaviour_profile_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -93,6 +105,8 @@ class MessageOut(BaseModel):
     attachments: list[AttachmentBrief] = []
     #: Saved memories that were in context for this reply (may include since-deleted ids).
     memory_ids: list[str] | None = None
+    #: How the model was chosen (manual or auto, with the router's reason) and the behaviour profile used.
+    route: dict[str, Any] | None = None
     #: Artifacts this reply created or updated: [{id, identifier, title, kind, version}].
     artifacts: list[dict[str, Any]] = []
 
@@ -118,6 +132,8 @@ class ConversationPatch(BaseModel):
     archived: bool | None = None
     #: Explicit null removes the conversation from its folder.
     folder_id: str | None = Field(default=None, max_length=32)
+    #: Explicit null removes the conversation's own profile (the project's or model's then applies).
+    behaviour_profile_id: str | None = Field(default=None, max_length=32)
 
 
 class SendMessage(BaseModel):
@@ -125,7 +141,7 @@ class SendMessage(BaseModel):
 
     content: str = Field(min_length=1, max_length=MAX_MESSAGE_CHARS)
     model_id: str | None = Field(default=None, max_length=300)
-    params: GenerationParams = Field(default_factory=GenerationParams)
+    params: GenerationParams | None = None
     #: Editing: the user message being replaced. The new message becomes its sibling (a new branch).
     edit_of: str | None = Field(default=None, max_length=32)
     #: Uploaded files (status "ready") to attach. When editing and omitted, the original's files are kept.
@@ -137,14 +153,14 @@ class RegenerateRequest(BaseModel):
 
     message_id: str = Field(max_length=32)
     model_id: str | None = Field(default=None, max_length=300)
-    params: GenerationParams = Field(default_factory=GenerationParams)
+    params: GenerationParams | None = None
 
 
 class ContinueRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     message_id: str = Field(max_length=32)
-    params: GenerationParams = Field(default_factory=GenerationParams)
+    params: GenerationParams | None = None
 
 
 class SelectBranch(BaseModel):
@@ -226,9 +242,28 @@ def _get_message(tree: MessageTree, message_id: str, role: str | None = None) ->
 
 
 async def _resolve_model(
-    db: DbDep, gateway: GatewayDep, requested: str | None, conv: Conversation
-) -> ModelRecord:
+    db: DbDep,
+    gateway: GatewayDep,
+    requested: str | None,
+    conv: Conversation,
+    *,
+    text: str = "",
+    has_images: bool = False,
+    has_documents: bool = False,
+) -> tuple[ModelRecord, dict[str, Any]]:
+    """The model to use and how it was chosen. `auto` (requested, or the chat's setting) asks the router."""
     model_id = requested or conv.model_id or (await settings_service.load(db)).default_model
+    if model_id == auto_router.AUTO:
+        await registry.sync(db, gateway)
+        try:
+            decision = await auto_router.decide(
+                db, gateway, text=text, has_images=has_images, has_documents=has_documents
+            )
+        except auto_router.NoModel as exc:
+            raise api_error(status.HTTP_400_BAD_REQUEST, "no_model_selected", str(exc)) from exc
+        rec = await db.get(ModelRecord, decision.model_id)
+        assert rec is not None
+        return rec, decision.as_route()
     if not model_id:
         raise api_error(status.HTTP_400_BAD_REQUEST, "no_model_selected", "Choose a model to chat with.")
     rec = await db.get(ModelRecord, model_id)
@@ -246,7 +281,7 @@ async def _resolve_model(
         raise api_error(
             status.HTTP_400_BAD_REQUEST, "model_not_chat", f"Model {model_id!r} does not support chat."
         )
-    return rec
+    return rec, {"mode": "manual", "model_id": rec.id}
 
 
 def _ensure_idle(request: Request, conv: Conversation) -> set[str]:
@@ -267,20 +302,33 @@ async def _start_stream(
     gateway: GatewayDep,
     conv: Conversation,
     model: ModelRecord,
-    params: GenerationParams,
+    params: GenerationParams | None,
     history_rows: list[Message],
     assistant: Message,
     user_message: Message | None,
     initial_content: str = "",
+    route: dict[str, Any] | None = None,
 ) -> EventStreamResponse:
     """Common tail of send / regenerate / continue: fit history and stream into `assistant`."""
     active: set[str] = request.app.state.active_generations
+    project = await db.get(Project, conv.project_id) if conv.project_id else None
+    profile = await profiles.effective(db, conversation=conv, project=project, model=model)
+    # Settings sent with the message win; otherwise the profile's defaults over the app's.
+    params = params or profiles.apply_params(GenerationParams(), profile.profile if profile else None)
     if model.context_length:
         params = params.model_copy(
             update={"context_length": min(params.context_length, model.context_length)}
         )
-    project = await db.get(Project, conv.project_id) if conv.project_id else None
     prefs = await settings_service.load(db)
+    if prefs.keep_one_model_loaded:
+        unloaded = await auto_router.keep_one_loaded(gateway, model.id)
+        if unloaded:
+            log.info("models.unloaded_others", kept=model.id, unloaded=unloaded)
+    preamble = "\n\n".join(
+        t
+        for t in (profiles.instructions(profile), ARTIFACT_INSTRUCTIONS if prefs.artifacts_enabled else "")
+        if t
+    )
     turn = await build_turn(
         db,
         gateway,
@@ -292,9 +340,16 @@ async def _start_stream(
         indexes_dir=settings.indexes_dir,
         conversation=conv,
         use_memory=prefs.memory_enabled,
-        preamble=ARTIFACT_INSTRUCTIONS if prefs.artifacts_enabled else "",
+        preamble=preamble,
     )
     assistant.memory_ids = turn.memory_ids or None
+    assistant.route = {
+        **(route or {"mode": "manual", "model_id": model.id}),
+        "profile": {"id": profile.profile.id, "name": profile.profile.name, "source": profile.source}
+        if profile
+        else None,
+    }
+    model.last_used_at = utcnow()
     await db.commit()
     start: dict[str, Any] = {
         "conversation": ConversationOut.model_validate(conv).model_dump(mode="json"),
@@ -388,7 +443,7 @@ async def summarise_conversation(
     """Summarise the current branch with a model and save it as this conversation's summary memory
     (replacing the previous one)."""
     conv = await _get_conversation(db, conversation_id)
-    model = await _resolve_model(db, gateway, body.model_id, conv)
+    model, _route = await _resolve_model(db, gateway, body.model_id, conv)
     try:
         mem = await memory.summarise(db, gateway, conv, model, context_length=body.context_length)
     except memory.MemoryError as exc:
@@ -496,6 +551,13 @@ async def update_conversation(
         if body.folder_id is not None and await db.get(Folder, body.folder_id) is None:
             raise api_error(status.HTTP_404_NOT_FOUND, "folder_not_found", "Folder not found.")
         conv.folder_id = body.folder_id
+    if "behaviour_profile_id" in fields:
+        if (
+            body.behaviour_profile_id is not None
+            and await db.get(BehaviourProfile, body.behaviour_profile_id) is None
+        ):
+            raise api_error(status.HTTP_404_NOT_FOUND, "profile_not_found", "Behaviour profile not found.")
+        conv.behaviour_profile_id = body.behaviour_profile_id
     await db.commit()
     await db.refresh(conv)
     return ConversationOut.model_validate(conv)
@@ -576,8 +638,20 @@ async def send_message(
 ) -> EventStreamResponse:
     """Adds a user message (or an edited version of one) and streams the reply. Disconnecting stops it."""
     conv = await _get_conversation(db, conversation_id)
-    model = await _resolve_model(db, gateway, body.model_id, conv)
     _ensure_idle(request, conv)
+    has_files = bool(body.attachment_ids)
+    has_images = has_files and any(
+        a.kind == "image" for a in [await db.get(Attachment, i) for i in body.attachment_ids or []] if a
+    )
+    model, route = await _resolve_model(
+        db,
+        gateway,
+        body.model_id,
+        conv,
+        text=body.content,
+        has_images=has_images,
+        has_documents=has_files and not has_images,
+    )
 
     path, tree = await conversations.active_path(db, conv)
     edited: Message | None = None
@@ -591,7 +665,8 @@ async def send_message(
 
     if not tree.by_id and conv.title == conversations.DEFAULT_TITLE:
         conv.title = conversations.title_from_text(body.content)
-    conv.model_id = model.id
+    # Remember the choice: "auto" stays auto (each message is routed), otherwise the chosen model.
+    conv.model_id = auto_router.AUTO if route["mode"] == "auto" else model.id
     if body.attachment_ids is not None:
         files = await _resolve_attachments(db, conv, body.attachment_ids)
     elif edited is not None:
@@ -618,6 +693,7 @@ async def send_message(
         history_rows=[*prior, user_msg],
         assistant=assistant,
         user_message=user_msg,
+        route=route,
     )
 
 
@@ -634,7 +710,6 @@ async def regenerate(
 ) -> EventStreamResponse:
     """New reply to the same prompt, kept as an alternative to the old one. Also used to retry errors."""
     conv = await _get_conversation(db, conversation_id)
-    model = await _resolve_model(db, gateway, body.model_id, conv)
     _ensure_idle(request, conv)
     tree = await conversations.load_tree(db, conv.id)
     old = _get_message(tree, body.message_id, role="assistant")
@@ -643,7 +718,8 @@ async def regenerate(
         raise api_error(
             status.HTTP_400_BAD_REQUEST, "nothing_to_regenerate", "This reply has no prompt to answer."
         )
-    conv.model_id = model.id
+    model, route = await _resolve_model(db, gateway, body.model_id, conv, text=parent.content)
+    conv.model_id = auto_router.AUTO if route["mode"] == "auto" else model.id
     assistant = await conversations.add_message(
         db, conv, role="assistant", content="", status="streaming", model_id=model.id, parent_id=parent.id
     )
@@ -660,6 +736,7 @@ async def regenerate(
         history_rows=tree.path_to(parent),
         assistant=assistant,
         user_message=None,
+        route=route,
     )
 
 
@@ -691,7 +768,7 @@ async def continue_reply(
             "cannot_continue",
             "Only the last reply in a branch can be continued.",
         )
-    model = await _resolve_model(db, gateway, msg.model_id, conv)
+    model, route = await _resolve_model(db, gateway, msg.model_id, conv)
     initial = msg.content
     msg.status = "streaming"
     msg.error = None
@@ -711,4 +788,5 @@ async def continue_reply(
         assistant=msg,
         user_message=None,
         initial_content=initial,
+        route=msg.route or route,
     )

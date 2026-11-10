@@ -1,7 +1,8 @@
 """ORM models. M3: sessions, audit log, settings, conversation core. M4: model registry.
 M5: active branch pointer, finish reasons, prompt templates. M6: attachments and document chunks.
 M7: project knowledge (attachments.project_id). M8: memories, messages.memory_ids.
-M9: artifacts and versions. M10: agent runs and steps.
+M9: artifacts and versions. M10: agent runs and steps. M11: model metadata, behaviour profiles, routing
+records, evaluation runs and results.
 
 Later milestones add their tables through new Alembic revisions (see docs/02-architecture.md §5).
 """
@@ -72,6 +73,9 @@ class Project(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
     archived_at: Mapped[datetime | None] = mapped_column()
+    behaviour_profile_id: Mapped[str | None] = mapped_column(
+        ForeignKey("behaviour_profiles.id", ondelete="SET NULL"), index=True
+    )
 
 
 class Conversation(Base):
@@ -87,6 +91,9 @@ class Conversation(Base):
     #: Last message of the branch being shown. No FK: messages already reference conversations, and a
     #: circular constraint would complicate deletes. Kept valid by services/conversation.
     current_leaf_id: Mapped[str | None] = mapped_column(String(32))
+    behaviour_profile_id: Mapped[str | None] = mapped_column(
+        ForeignKey("behaviour_profiles.id", ondelete="SET NULL"), index=True
+    )
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow, index=True)
 
@@ -115,6 +122,8 @@ class Message(Base):
     finish_reason: Mapped[str | None] = mapped_column(String(20))
     #: Memories that were placed in the model's context for this reply (ids only, for transparency).
     memory_ids: Mapped[list[str] | None] = mapped_column(JSON)
+    #: How the model was chosen: {mode: manual|auto, task, model_id, reason} (null for older messages).
+    route: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
@@ -144,6 +153,20 @@ class ModelRecord(Base):
     available: Mapped[bool] = mapped_column(Boolean, default=True)
     first_seen_at: Mapped[datetime] = mapped_column(default=utcnow)
     last_synced_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # Milestone 11: details read from the provider (Ollama /api/show, GGUF header, HF config).
+    architecture: Mapped[str | None] = mapped_column(String(100))
+    parameter_count: Mapped[int | None] = mapped_column(BigInteger)
+    #: Short licence name (first line of the licence text, or the SPDX id).
+    license: Mapped[str | None] = mapped_column(String(200))
+    license_text: Mapped[str | None] = mapped_column(Text)
+    #: Layer / attention sizes used to estimate KV-cache memory.
+    details: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    #: The digest the details above were read for (re-read when the model changes).
+    details_digest: Mapped[str | None] = mapped_column(String(128))
+    behaviour_profile_id: Mapped[str | None] = mapped_column(
+        ForeignKey("behaviour_profiles.id", ondelete="SET NULL")
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column()
 
 
 class PromptTemplate(Base):
@@ -338,3 +361,66 @@ class AgentStep(Base):
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     finished_at: Mapped[datetime | None] = mapped_column()
+
+
+class BehaviourProfile(Base):
+    """A user-editable preset: instructions and sampling defaults. Attached to a model, a project or a
+    conversation; the most specific one applies."""
+
+    __tablename__ = "behaviour_profiles"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(100))
+    description: Mapped[str] = mapped_column(String(500), default="")
+    system_prompt: Mapped[str] = mapped_column(Text, default="")
+    temperature: Mapped[float | None] = mapped_column()
+    top_p: Mapped[float | None] = mapped_column()
+    max_tokens: Mapped[int | None] = mapped_column(Integer)
+    context_length: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class EvalRun(Base):
+    """One evaluation of one model on chosen suites (reproducible: temperature 0, fixed seed, versions)."""
+
+    __tablename__ = "eval_runs"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    model_id: Mapped[str] = mapped_column(String(300), index=True)
+    #: Model digest at the time, so results are tied to the exact weights.
+    model_digest: Mapped[str | None] = mapped_column(String(128))
+    suites: Mapped[list[str]] = mapped_column(JSON, default=list)
+    #: suite -> version hash
+    suite_versions: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
+    seed: Mapped[int] = mapped_column(Integer, default=7)
+    status: Mapped[str] = mapped_column(
+        String(20), default="queued"
+    )  # queued|running|completed|failed|cancelled
+    progress: Mapped[int] = mapped_column(Integer, default=0)
+    total: Mapped[int] = mapped_column(Integer, default=0)
+    #: Per-suite scores and measurements (see services/evaluation).
+    summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+    finished_at: Mapped[datetime | None] = mapped_column()
+
+
+class EvalResult(Base):
+    __tablename__ = "eval_results"
+    __table_args__ = (Index("ix_eval_results_run_suite", "run_id", "suite"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("eval_runs.id", ondelete="CASCADE"))
+    suite: Mapped[str] = mapped_column(String(50))
+    case_id: Mapped[str] = mapped_column(String(100))
+    #: e.g. "should_answer" / "should_decline" for the refusal suite.
+    category: Mapped[str] = mapped_column(String(50), default="")
+    prompt: Mapped[str] = mapped_column(Text)
+    output: Mapped[str] = mapped_column(Text, default="")
+    passed: Mapped[bool | None] = mapped_column(Boolean)
+    #: What the scorer observed, e.g. {"refused": true} or {"expected": "42", "got": "41"}.
+    verdict: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    tokens_per_s: Mapped[float | None] = mapped_column()
+    error: Mapped[str | None] = mapped_column(Text)

@@ -19,7 +19,7 @@ from services.document_processing.validation import UnsupportedFile
 from services.projects import service as projects
 from services.retrieval import project_index
 from storage.database.base import utcnow
-from storage.database.models import Project
+from storage.database.models import BehaviourProfile, Project
 
 from ..deps import DatabaseDep, DbDep, GatewayDep, SettingsDep
 from ..security import CsrfSessionDep, SessionDep, api_error, client_ip
@@ -40,6 +40,7 @@ class ProjectOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None
+    behaviour_profile_id: str | None = None
     conversation_count: int = 0
     knowledge_count: int = 0
 
@@ -59,6 +60,8 @@ class ProjectPatch(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     instructions: str | None = Field(default=None, max_length=20_000)
     archived: bool | None = None
+    #: Explicit null removes the project's profile.
+    behaviour_profile_id: str | None = Field(default=None, max_length=32)
 
 
 class ProjectHitOut(BaseModel):
@@ -120,6 +123,10 @@ async def update_project(project_id: str, body: ProjectPatch, _: CsrfSessionDep,
         project.instructions = body.instructions
     if body.archived is not None:
         project.archived_at = utcnow() if body.archived else None
+    if "behaviour_profile_id" in body.model_fields_set:
+        if body.behaviour_profile_id and await db.get(BehaviourProfile, body.behaviour_profile_id) is None:
+            raise api_error(status.HTTP_404_NOT_FOUND, "profile_not_found", "Behaviour profile not found.")
+        project.behaviour_profile_id = body.behaviour_profile_id
     project.updated_at = utcnow()
     await db.commit()
     await db.refresh(project)

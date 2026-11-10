@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     ollama_url: str = "http://127.0.0.1:11434"
     #: How long Ollama keeps a model loaded after the last request (RAM vs. reload latency).
     ollama_keep_alive: str = "10m"
+    #: A running llama.cpp `llama-server` (loopback only), e.g. http://127.0.0.1:8080. Off when unset.
+    llamacpp_url: str | None = None
+    #: Offer local Hugging Face models through Transformers (needs `uv sync --extra ml`).
+    enable_transformers: bool = True
 
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     log_to_file: bool = True
@@ -94,6 +98,11 @@ class Settings(BaseSettings):
     @property
     def indexes_dir(self) -> Path:
         return self.data_dir / "indexes"
+
+    @property
+    def hf_models_dir(self) -> Path:
+        """Hugging Face model folders for the Transformers provider."""
+        return self.data_dir / "models" / "hf"
 
     @property
     def workspace_dir(self) -> Path:

@@ -167,7 +167,122 @@ export type ModelInfo = {
   available: boolean;
   chat: boolean;
   last_synced_at: string;
+  architecture?: string | null;
+  parameter_count?: number | null;
+  license?: string | null;
+  behaviour_profile_id?: string | null;
+  last_used_at?: string | null;
+  /** RAM needed at 4k context (weights + KV cache). */
+  estimated_ram_bytes?: number | null;
+  estimate_exact?: boolean;
+  fit_now?: Fit;
+  fit_total?: Fit;
+  loaded?: boolean;
+  evaluation?: EvalSummary | null;
 };
+export type Fit = "fits" | "tight" | "wont_fit" | "unknown";
+export type ModelDetail = ModelInfo & { license_text: string | null; details: Record<string, number> };
+export type Hardware = {
+  ram_total: number;
+  ram_available: number;
+  ram_used_percent: number;
+  cpu_percent: number;
+  cpu_count: number;
+  gpu_percent: number | null;
+  gpu_note: string;
+  loaded: { model_id: string; bytes: number }[];
+};
+export type Routing = { tasks: string[]; assignments: Record<string, string>; keep_one_model_loaded: boolean };
+export type RouteDecision = {
+  mode: "auto";
+  task: string;
+  model_id: string;
+  reason: string;
+  considered: { model_id: string; fit: Fit; estimate_bytes: number | null }[];
+};
+export type BehaviourProfile = {
+  id: string;
+  name: string;
+  description: string;
+  system_prompt: string;
+  temperature: number | null;
+  top_p: number | null;
+  max_tokens: number | null;
+  context_length: number | null;
+  created_at: string;
+  updated_at: string;
+  used_by: { models: number; projects: number; conversations: number };
+};
+export type ProfileInput = Omit<BehaviourProfile, "id" | "created_at" | "updated_at" | "used_by">;
+export type SuiteSummary = {
+  title: string;
+  kind: "capability" | "behaviour";
+  passed: number;
+  total: number;
+  errors: number;
+  score: number | null;
+  over_refusal?: number | null;
+  under_refusal?: number | null;
+  admits_unknown?: number | null;
+  method?: string;
+};
+export type EvalSummary = {
+  run_id?: string;
+  finished_at?: string;
+  speed?: { tokens_per_s: number | null; first_token_ms: number | null };
+  memory?: { loaded_bytes: number | null };
+} & Record<string, unknown>;
+export type EvalSuite = {
+  key: string;
+  title: string;
+  kind: "capability" | "behaviour";
+  description: string;
+  cases: number;
+  version: string;
+};
+export type EvalRun = {
+  id: string;
+  model_id: string;
+  model_digest: string | null;
+  suites: string[];
+  suite_versions: Record<string, string>;
+  seed: number;
+  status: "queued" | "running" | "completed" | "failed" | "cancelled";
+  progress: number;
+  total: number;
+  summary: EvalSummary;
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
+};
+export type EvalResult = {
+  suite: string;
+  case_id: string;
+  category: string;
+  prompt: string;
+  output: string;
+  passed: boolean | null;
+  verdict: Record<string, unknown>;
+  latency_ms: number | null;
+  tokens_per_s: number | null;
+  error: string | null;
+};
+export type ImportInfo = {
+  path: string;
+  format: "gguf" | "safetensors";
+  size_bytes: number;
+  name: string | null;
+  architecture: string | null;
+  parameter_count: number | null;
+  quantization: string | null;
+  context_length: number | null;
+  license: string | null;
+  estimated_ram_bytes: number | null;
+  fit_total: Fit;
+  target: "ollama" | "transformers";
+};
+/** A line of progress from a download or import (Ollama style: status, completed/total bytes). */
+export type Progress = { status?: string; completed?: number; total?: number; error?: string; folder?: string };
 
 export type ProviderStatus = {
   name: string;
@@ -211,6 +326,8 @@ export type ChatMessage = {
   memory_ids?: string[] | null;
   /** Artifacts this reply created or updated, in the order they appear in its text. */
   artifacts?: ArtifactRef[];
+  /** How the model was chosen (manual or auto, with the router's reason) and the profile used. */
+  route?: { mode: "manual" | "auto"; model_id: string; task?: string; reason?: string; profile?: unknown } | null;
 };
 
 export type AttachmentKind = "pdf" | "docx" | "xlsx" | "csv" | "json" | "markdown" | "text" | "code" | "image";
@@ -421,6 +538,7 @@ export type Conversation = {
   archived: boolean;
   model_id: string | null;
   current_leaf_id?: string | null;
+  behaviour_profile_id?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -461,10 +579,15 @@ export type Project = {
   archived_at: string | null;
   conversation_count: number;
   knowledge_count: number;
+  behaviour_profile_id?: string | null;
 };
-export type ProjectPatch = Partial<Pick<Project, "name" | "description" | "instructions">> & { archived?: boolean };
+export type ProjectPatch = Partial<Pick<Project, "name" | "description" | "instructions" | "behaviour_profile_id">> & {
+  archived?: boolean;
+};
 export type ProjectHit = { kind: "conversation" | "knowledge"; id: string; title: string; snippet: string };
-export type ConversationPatch = Partial<Pick<Conversation, "title" | "pinned" | "archived" | "folder_id">>;
+export type ConversationPatch = Partial<
+  Pick<Conversation, "title" | "pinned" | "archived" | "folder_id" | "behaviour_profile_id">
+>;
 
 export type TurnEvent =
   | {
@@ -665,6 +788,39 @@ export const api = {
   },
   summariseConversation: (id: string, body: { model_id?: string } = {}) =>
     apiRequest<Memory>(`/api/conversations/${encodeURIComponent(id)}/summarise`, { method: "POST", body }),
+  modelDetail: (id: string, signal?: AbortSignal) =>
+    apiRequest<ModelDetail>(`/api/models/${encodeURIComponent(id)}/detail`, { signal }),
+  setModelProfile: (id: string, profileId: string | null) =>
+    apiRequest<ModelDetail>(`/api/models/${encodeURIComponent(id)}/profile`, {
+      method: "PATCH",
+      body: { behaviour_profile_id: profileId },
+    }),
+  unloadModel: (id: string) =>
+    apiRequest<{ ok: boolean }>(`/api/models/${encodeURIComponent(id)}/unload`, { method: "POST" }),
+  deleteModel: (id: string) => apiRequest<void>(`/api/models/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  hardware: (signal?: AbortSignal) => apiRequest<Hardware>("/api/models/system/hardware", { signal }),
+  routing: (signal?: AbortSignal) => apiRequest<Routing>("/api/models/system/routing", { signal }),
+  updateRouting: (body: { assignments?: Record<string, string>; keep_one_model_loaded?: boolean }) =>
+    apiRequest<Routing>("/api/models/system/routing", { method: "PUT", body }),
+  previewRoute: (body: { text: string; has_images?: boolean; has_documents?: boolean }) =>
+    apiRequest<RouteDecision>("/api/models/system/routing/preview", { method: "POST", body }),
+  inspectImport: (path: string) =>
+    apiRequest<ImportInfo>("/api/models/import/inspect", { method: "POST", body: { path } }),
+  profiles: (signal?: AbortSignal) => apiRequest<BehaviourProfile[]>("/api/profiles", { signal }),
+  createProfile: (body: ProfileInput) => apiRequest<BehaviourProfile>("/api/profiles", { method: "POST", body }),
+  updateProfile: (id: string, body: ProfileInput) =>
+    apiRequest<BehaviourProfile>(`/api/profiles/${encodeURIComponent(id)}`, { method: "PUT", body }),
+  deleteProfile: (id: string) => apiRequest<void>(`/api/profiles/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  evalSuites: (signal?: AbortSignal) => apiRequest<EvalSuite[]>("/api/evaluations/suites", { signal }),
+  evalRuns: (modelId?: string, signal?: AbortSignal) =>
+    apiRequest<EvalRun[]>(`/api/evaluations${modelId ? `?model_id=${encodeURIComponent(modelId)}` : ""}`, { signal }),
+  evalRun: (id: string, signal?: AbortSignal) =>
+    apiRequest<EvalRun & { results: EvalResult[] }>(`/api/evaluations/${encodeURIComponent(id)}`, { signal }),
+  startEval: (body: { model_id: string; suites?: string[] }) =>
+    apiRequest<EvalRun>("/api/evaluations", { method: "POST", body }),
+  cancelEval: (id: string) =>
+    apiRequest<EvalRun>(`/api/evaluations/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
+  deleteEval: (id: string) => apiRequest<void>(`/api/evaluations/${encodeURIComponent(id)}`, { method: "DELETE" }),
   conversation: (id: string, signal?: AbortSignal) =>
     apiRequest<ConversationDetail>(`/api/conversations/${encodeURIComponent(id)}`, { signal }),
   createConversation: (body: { title?: string; model_id?: string; project_id?: string } = {}) =>
@@ -676,12 +832,13 @@ export type TurnRequest =
       kind: "send";
       content: string;
       model_id: string;
-      params: GenerationParams;
+      /** Omitted: the behaviour profile's defaults (or the app's) apply. */
+      params?: GenerationParams;
       edit_of?: string;
       attachment_ids?: string[];
     }
-  | { kind: "regenerate"; message_id: string; model_id: string; params: GenerationParams }
-  | { kind: "continue"; message_id: string; params: GenerationParams };
+  | { kind: "regenerate"; message_id: string; model_id: string; params?: GenerationParams }
+  | { kind: "continue"; message_id: string; params?: GenerationParams };
 
 const TURN_PATH: Record<TurnRequest["kind"], string> = {
   send: "messages",
@@ -794,4 +951,38 @@ export async function* streamAgentRun(runId: string, signal: AbortSignal): Async
   for await (const ev of parseSse(resp.body)) {
     yield { event: ev.event, data: JSON.parse(ev.data) } as AgentEvent;
   }
+}
+
+/**
+ * POST that streams newline-delimited JSON progress (model pull, import, Hugging Face download). Resolves when
+ * the stream ends; throws on an error line.
+ */
+export async function streamProgress(
+  path: string,
+  body: unknown,
+  onProgress: (p: Progress) => void,
+  signal?: AbortSignal,
+): Promise<Progress | null> {
+  const resp = await apiFetch(path, { method: "POST", body, signal });
+  if (!resp.body) return null;
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let last: Progress | null = null;
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (!line) continue;
+      const p = JSON.parse(line) as Progress;
+      if (p.error) throw new ApiError(502, "progress_error", p.error);
+      last = p;
+      onProgress(p);
+    }
+  }
+  return last;
 }

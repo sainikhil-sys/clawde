@@ -40,6 +40,7 @@ export function ModelSelect({
         )}
       >
         {value === null && <option value="">Choose a model</option>}
+        {models.length > 0 && <option value="auto">Auto (picks a model for each message)</option>}
         {models.map((m) => (
           <option key={m.id} value={m.id}>
             {modelLabel(m)}

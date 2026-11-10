@@ -126,9 +126,43 @@ function readParams(): GenerationParams {
 
 const paramListeners = new Set<() => void>();
 let paramsCache: GenerationParams | null = null;
+let customCache: boolean | null = null;
 
-/** Generation controls, remembered per browser (a convenience; behaviour profiles arrive in M11). */
-export function useGenerationParams(): [GenerationParams, (p: GenerationParams) => void] {
+function readCustom(): boolean {
+  try {
+    return window.localStorage.getItem(PARAMS_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Generation controls, remembered per browser. Until the user changes them they aren't sent, so the chat's
+ * behaviour profile (or the app defaults) applies; `resetParams` goes back to that.
+ */
+export function useGenerationParams(): [
+  GenerationParams,
+  (p: GenerationParams) => void,
+  { custom: boolean; reset: () => void },
+] {
+  const custom = useSyncExternalStore(
+    (l) => {
+      paramListeners.add(l);
+      return () => paramListeners.delete(l);
+    },
+    () => (customCache ??= readCustom()),
+    () => false,
+  );
+  const reset = useCallback(() => {
+    paramsCache = DEFAULT_PARAMS;
+    customCache = false;
+    try {
+      window.localStorage.removeItem(PARAMS_KEY);
+    } catch {
+      /* storage unavailable */
+    }
+    for (const l of paramListeners) l();
+  }, []);
   const params = useSyncExternalStore(
     (l) => {
       paramListeners.add(l);
@@ -139,6 +173,7 @@ export function useGenerationParams(): [GenerationParams, (p: GenerationParams) 
   );
   const setParams = useCallback((p: GenerationParams) => {
     paramsCache = p;
+    customCache = true;
     try {
       window.localStorage.setItem(PARAMS_KEY, JSON.stringify(p));
     } catch {
@@ -146,5 +181,5 @@ export function useGenerationParams(): [GenerationParams, (p: GenerationParams) 
     }
     for (const l of paramListeners) l();
   }, []);
-  return [params, setParams];
+  return [params, setParams, { custom, reset }];
 }

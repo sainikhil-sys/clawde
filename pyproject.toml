@@ -22,7 +22,15 @@ dependencies = [
   "python-multipart>=0.0.33",
   "faiss-cpu>=1.15.1",
   "numpy>=2.5.4",
+  "psutil>=7.2.2",
+  "gguf>=0.19.0",
+  "huggingface-hub>=2.4.0",
 ]
+
+[project.optional-dependencies]
+# In-process Hugging Face models (Transformers adapter) and, from Milestone 12, training. CPU build of PyTorch.
+# Install with: uv sync --extra ml
+ml = ["torch>=2.5", "transformers>=4.46"]
 
 [project.scripts]
 clawde-api = "api.cli:main"
@@ -46,6 +54,14 @@ packages = ["apps/api", "core", "models", "services", "storage"]
 [tool.uv]
 default-groups = ["dev"]
 
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
@@ -65,6 +81,8 @@ ignore = ["S101"] # assert is fine in tests
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S105", "S106"]
 "storage/database/migrations/**" = ["E501"]
+# Evaluation prompts and phrase lists are data; keeping each on one line keeps them readable.
+"core/evaluation/suites.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -75,5 +93,5 @@ plugins = ["pydantic.mypy"]
 exclude = ["storage/database/migrations/versions/"]
 
 [[tool.mypy.overrides]]
-module = ["alembic.*", "docx", "docx.*", "openpyxl", "openpyxl.*", "faiss", "faiss.*"]
+module = ["alembic.*", "docx", "docx.*", "openpyxl", "openpyxl.*", "faiss", "faiss.*", "psutil", "psutil.*", "gguf", "gguf.*", "torch", "torch.*", "transformers", "transformers.*"]
 ignore_missing_imports = true

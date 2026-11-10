@@ -15,10 +15,13 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from core.inference.gateway import InferenceGateway
 from core.inference.provider import ModelProvider
 from core.tools import default_registry
+from models.adapters.llamacpp import LlamaCppProvider
 from models.adapters.ollama import OllamaProvider
+from models.adapters.transformers_local import TransformersProvider
 from services.agents.manager import AgentManager
 from services.attachments import service as attachments
 from services.conversation import service as conversations
+from services.evaluation import EvalManager
 from services.memory import service as memory
 from services.sandbox.python_runner import PythonSandbox
 from storage.database import migrate
@@ -30,7 +33,19 @@ from .middleware import BodySizeLimitMiddleware, OriginCheckMiddleware, RequestC
 from .routers import agents as agents_router
 from .routers import artifacts as artifacts_router
 from .routers import attachments as attachments_router
-from .routers import audit, folders, health, memories, models, projects, session, settings, templates
+from .routers import (
+    audit,
+    evaluations,
+    folders,
+    health,
+    memories,
+    models,
+    profiles,
+    projects,
+    session,
+    settings,
+    templates,
+)
 from .routers import conversations as conversations_router
 from .security import CSRF_HEADER
 
@@ -45,6 +60,16 @@ _TELEMETRY_OFF: TelemetryConfig = {
     "operation_spans": False,
     "auto_configure": False,
 }
+
+
+def default_providers(cfg: Settings) -> list[ModelProvider]:
+    """Ollama always; llama.cpp when a llama-server URL is configured; Transformers unless disabled."""
+    out: list[ModelProvider] = [OllamaProvider(cfg.ollama_url, keep_alive=cfg.ollama_keep_alive)]
+    if cfg.llamacpp_url:
+        out.append(LlamaCppProvider(cfg.llamacpp_url))
+    if cfg.enable_transformers:
+        out.append(TransformersProvider(cfg.hf_models_dir))
+    return out
 
 
 def create_app(
@@ -70,11 +95,7 @@ def create_app(
             await db.commit()
         if expired:
             log.info("api.expired_memories_removed", count=expired)
-        gateway = InferenceGateway(
-            providers
-            if providers is not None
-            else [OllamaProvider(cfg.ollama_url, keep_alive=cfg.ollama_keep_alive)]
-        )
+        gateway = InferenceGateway(providers if providers is not None else default_providers(cfg))
         app.state.settings = cfg
         app.state.database = database
         app.state.gateway = gateway
@@ -91,6 +112,9 @@ def create_app(
         if interrupted:
             log.warning("api.agent_runs_interrupted", count=interrupted)
         app.state.agents = agents
+        evals = EvalManager(database.sessionmaker, gateway)
+        await evals.recover()
+        app.state.evals = evals
         app.state.background_tasks = set(
             await attachments.resume_unfinished(database.sessionmaker, gateway, cfg.uploads_dir)
         )
@@ -109,6 +133,7 @@ def create_app(
                 task.cancel()
             await asyncio.gather(*app.state.background_tasks, return_exceptions=True)
             await agents.shutdown()
+            await evals.shutdown()
             await gateway.aclose()
             await database.dispose()
             log.info("api.stopped")
@@ -137,6 +162,8 @@ def create_app(
         memories.router,
         artifacts_router.router,
         agents_router.router,
+        profiles.router,
+        evaluations.router,
     ):
         app.include_router(router, prefix=api_prefix)
 

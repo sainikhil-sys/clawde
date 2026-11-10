@@ -57,6 +57,7 @@ def message_payload(m: Message) -> dict[str, Any]:
         "error": m.error,
         "finish_reason": m.finish_reason,
         "memory_ids": m.memory_ids,
+        "route": m.route,
         "created_at": m.created_at.isoformat(),
     }
 

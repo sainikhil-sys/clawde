@@ -4,8 +4,7 @@ import { SlidersHorizontal } from "lucide-react";
 import { useId } from "react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { DEFAULT_PARAMS } from "@/hooks/use-chat";
-import type { GenerationParams } from "@/lib/api";
+import type { BehaviourProfile, GenerationParams } from "@/lib/api";
 
 type Field = {
   key: Exclude<keyof GenerationParams, "response_format">;
@@ -41,10 +40,22 @@ export function GenerationSettings({
   params,
   onChange,
   maxContext,
+  custom = true,
+  onReset,
+  profiles,
+  profileId,
+  onProfileChange,
 }: {
   params: GenerationParams;
   onChange: (p: GenerationParams) => void;
   maxContext: number | null;
+  /** The user changed these settings (otherwise the behaviour profile or app defaults apply). */
+  custom?: boolean;
+  onReset?: () => void;
+  /** Behaviour profiles, to choose one for this chat. */
+  profiles?: BehaviourProfile[];
+  profileId?: string | null;
+  onProfileChange?: (id: string | null) => void;
 }) {
   const baseId = useId();
   return (
@@ -61,14 +72,38 @@ export function GenerationSettings({
       <PopoverContent align="start" className="w-80 space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-medium">Generation</h3>
-          <button
-            type="button"
-            onClick={() => onChange(DEFAULT_PARAMS)}
-            className="rounded text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            Reset
-          </button>
+          {custom && onReset && (
+            <button
+              type="button"
+              onClick={onReset}
+              className="rounded text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Use defaults
+            </button>
+          )}
         </div>
+        <p className="text-xs text-muted-foreground">
+          {custom
+            ? "Your settings apply to every chat in this browser."
+            : "Using the chat's behaviour profile, or the app defaults. Change a setting to override it."}
+        </p>
+        {onProfileChange && profiles && (
+          <label className="block space-y-1 text-sm">
+            <span>Behaviour profile for this chat</span>
+            <select
+              value={profileId ?? ""}
+              onChange={(e) => onProfileChange(e.target.value || null)}
+              className="h-8 w-full rounded-md border bg-background px-2 text-sm"
+            >
+              <option value="">From the project or model</option>
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {FIELDS.map((f) => {
           const max = f.key === "context_length" && maxContext ? Math.min(f.max, maxContext) : f.max;
           const id = `${baseId}-${f.key}`;

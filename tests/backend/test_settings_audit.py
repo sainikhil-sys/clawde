@@ -20,6 +20,8 @@ async def test_settings_defaults_and_validation(client: httpx.AsyncClient) -> No
         "memory_auto_summarise": True,
         "artifacts_enabled": True,
         "tool_permissions": {},
+        "router_assignments": {},
+        "keep_one_model_loaded": True,
     }
 
     unknown = await client.patch("/api/settings", json={"telemetry": True}, headers=csrf_headers(token))

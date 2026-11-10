@@ -28,6 +28,10 @@ class AppSettings(BaseModel):
     artifacts_enabled: bool = True
     #: Per-tool agent permission: auto | ask | deny (Milestone 10), checked against each tool's risk.
     tool_permissions: dict[str, Literal["auto", "ask", "deny"]] = Field(default_factory=dict)
+    #: Router (Milestone 11): preferred model per task type, used when a chat's model is "Auto".
+    router_assignments: dict[str, str] = Field(default_factory=dict)
+    #: Unload other chat models before generating, so only one large model holds RAM at a time.
+    keep_one_model_loaded: bool = True
 
 
 class AppSettingsPatch(BaseModel):
@@ -39,6 +43,8 @@ class AppSettingsPatch(BaseModel):
     memory_auto_summarise: bool | None = None
     artifacts_enabled: bool | None = None
     tool_permissions: dict[str, Literal["auto", "ask", "deny"]] | None = None
+    router_assignments: dict[str, str] | None = None
+    keep_one_model_loaded: bool | None = None
 
 
 async def load(db: AsyncSession) -> AppSettings:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import structlog
 from sqlalchemy import select
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.inference.gateway import InferenceGateway
 from core.inference.provider import ProviderError
+from core.inference.types import ModelDetails
 from storage.database.base import utcnow
 from storage.database.models import ModelRecord
 
@@ -75,7 +77,47 @@ async def sync(db: AsyncSession, gateway: InferenceGateway) -> list[ProviderStat
             if stale.provider == name and stale.id not in seen:
                 stale.available = False
         statuses.append(ProviderStatus(name, "ok", model_count=len(found)))
+        await _refresh_details(provider, [r for r in existing.values() if r.provider == name and r.available])
     return statuses
+
+
+async def _refresh_details(provider: Any, records: list[ModelRecord]) -> None:
+    """Read licence, architecture and layer shapes for models whose weights changed (by digest)."""
+    details_fn = getattr(provider, "details", None)
+    if details_fn is None:
+        return
+    for rec in records:
+        if rec.details_digest is not None and rec.details_digest == (rec.digest or ""):
+            continue
+        try:
+            d: ModelDetails | None = await details_fn(rec.provider_ref)
+        except ProviderError as exc:
+            log.warning("registry.details_failed", model=rec.id, error=exc.message)
+            continue
+        if d is None:
+            continue
+        apply_details(rec, d)
+        rec.details_digest = rec.digest or ""
+
+
+def apply_details(rec: ModelRecord, d: ModelDetails) -> None:
+    rec.architecture = d.architecture
+    rec.parameter_count = d.parameter_count
+    rec.license = d.license
+    rec.license_text = d.license_text
+    if d.context_length and not rec.context_length:
+        rec.context_length = d.context_length
+    rec.details = {
+        k: v
+        for k, v in {
+            "layers": d.layers,
+            "embedding_length": d.embedding_length,
+            "head_count": d.head_count,
+            "head_count_kv": d.head_count_kv,
+            "max_context_length": d.context_length,
+        }.items()
+        if v is not None
+    }
 
 
 async def list_models(db: AsyncSession, *, include_unavailable: bool = False) -> list[ModelRecord]:

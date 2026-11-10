@@ -82,3 +82,29 @@ def split_model_id(model_id: str) -> tuple[str, str]:
     if not sep or not provider or not ref:
         raise ValueError(f"invalid model id {model_id!r}; expected '<provider>:<ref>'")
     return provider, ref
+
+
+@dataclass(frozen=True, slots=True)
+class ModelDetails:
+    """Metadata beyond the listing: used for licence display and memory estimates."""
+
+    architecture: str | None = None
+    parameter_count: int | None = None
+    license: str | None = None
+    license_text: str | None = None
+    context_length: int | None = None
+    #: Transformer sizes for the KV-cache estimate (None when unknown).
+    layers: int | None = None
+    embedding_length: int | None = None
+    head_count: int | None = None
+    head_count_kv: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LoadedModel:
+    """A model currently held in memory by its provider."""
+
+    ref: str
+    size_bytes: int
+    vram_bytes: int = 0
+    expires_at: datetime | None = None

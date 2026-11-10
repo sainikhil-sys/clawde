@@ -12,6 +12,7 @@ import { ConversationMenu } from "@/components/conversation/conversation-menu";
 import { ConversationMemory } from "@/components/memory/conversation-memory";
 import { MemoryDialog } from "@/components/memory/memory-dialog";
 import { useApiHealth } from "@/hooks/use-api-health";
+import { useProfiles } from "@/hooks/use-library";
 import { useProject } from "@/hooks/use-projects";
 import { ACCEPT, useComposerAttachments } from "@/hooks/use-composer-attachments";
 import {
@@ -66,7 +67,10 @@ export function ChatView({
   const live = useLiveTurn(conversationId);
   const projectId = conversation.data?.project_id ?? newChatProjectId ?? null;
   const project = useProject(projectId);
-  const [params, setParams] = useGenerationParams();
+  const [params, setParams, paramState] = useGenerationParams();
+  const profiles = useProfiles();
+  // Only send settings the user chose; otherwise the behaviour profile (or app defaults) applies.
+  const sentParams = paramState.custom ? params : undefined;
   const [draft, setDraft] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
   const [remembering, setRemembering] = useState<ChatMessage | null>(null);
@@ -97,7 +101,7 @@ export function ChatView({
   const chatModels = useMemo(() => (models.data?.models ?? []).filter((m) => m.chat), [models.data]);
   const modelId = useMemo(() => {
     const candidates = [pickedModel, conversation.data?.model_id, settings.data?.default_model];
-    for (const c of candidates) if (c && chatModels.some((m) => m.id === c)) return c;
+    for (const c of candidates) if (c && (c === "auto" || chatModels.some((m) => m.id === c))) return c;
     // Nothing chosen yet: start with the smallest model, which responds fastest on CPU-only machines.
     const smallest = [...chatModels].sort((a, b) => (a.size_bytes ?? Infinity) - (b.size_bytes ?? Infinity))[0];
     return smallest?.id ?? null;
@@ -172,7 +176,7 @@ export function ChatView({
     }
     run(
       id,
-      { kind: "send", content, model_id: modelId, params, attachment_ids: attachmentIds },
+      { kind: "send", content, model_id: modelId, params: sentParams, attachment_ids: attachmentIds },
       undefined,
       files.clear,
     );
@@ -182,15 +186,25 @@ export function ChatView({
   const actions: MessageActions = {
     onEdit: (message, newContent) => {
       if (!conversationId || !modelId) return;
-      run(conversationId, { kind: "send", content: newContent, model_id: modelId, params, edit_of: message.id });
+      run(conversationId, {
+        kind: "send",
+        content: newContent,
+        model_id: modelId,
+        params: sentParams,
+        edit_of: message.id,
+      });
     },
     onRegenerate: (message) => {
       if (!conversationId || !modelId) return;
-      run(conversationId, { kind: "regenerate", message_id: message.id, model_id: modelId, params }, message);
+      run(
+        conversationId,
+        { kind: "regenerate", message_id: message.id, model_id: modelId, params: sentParams },
+        message,
+      );
     },
     onContinue: (message) => {
       if (!conversationId) return;
-      run(conversationId, { kind: "continue", message_id: message.id, params }, message);
+      run(conversationId, { kind: "continue", message_id: message.id, params: sentParams }, message);
     },
     onOpenAttachment: (attachment) => setPreview(attachment),
     onRemember: conversationId ? (message) => setRemembering(message) : undefined,
@@ -407,6 +421,19 @@ export function ChatView({
                   params={params}
                   onChange={setParams}
                   maxContext={selectedModel?.context_length ?? null}
+                  custom={paramState.custom}
+                  onReset={paramState.reset}
+                  profiles={profiles.data}
+                  profileId={conversation.data?.behaviour_profile_id ?? null}
+                  onProfileChange={
+                    conversationId
+                      ? (id) =>
+                          api
+                            .updateConversation(conversationId, { behaviour_profile_id: id })
+                            .then(() => queryClient.invalidateQueries({ queryKey: ["conversation", conversationId] }))
+                            .catch((err) => setSendError(errorText(err, "Couldn't change the profile.")))
+                      : undefined
+                  }
                 />
                 {apiUp && (
                   <TemplatesMenu draft={draft} onInsert={(text) => setDraft((d) => (d ? `${d}\n\n${text}` : text))} />
